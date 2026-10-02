@@ -10,9 +10,13 @@ class TrustProxies extends Middleware
     /**
      * The trusted proxies for this application.
      *
+     * Produksi: Laravel di belakang Caddy → Nginx (jaringan internal
+     * docker). Tanpa ini asset() menghasilkan URL http:// walau koneksi
+     * pengunjung sudah HTTPS.
+     *
      * @var array<int, string>|string|null
      */
-    protected $proxies;
+    protected $proxies = '*';
 
     /**
      * The headers that should be used to detect proxies.

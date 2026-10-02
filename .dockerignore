@@ -1,0 +1,10 @@
+.git
+vendor
+node_modules
+storage
+public/assets
+*.sql.gz
+.env
+.DS_Store
+error_log
+screenlog*.??

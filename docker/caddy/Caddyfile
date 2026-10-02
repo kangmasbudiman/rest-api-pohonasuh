@@ -1,0 +1,13 @@
+# Caddy = pintu masuk publik satu-satunya: SSL Let's Encrypt otomatis
+# (terbit & perpanjang sendiri). DNS rest.pohonasuh.org harus sudah
+# mengarah ke VPS sebelum stack dinyalakan.
+#
+# Nanti website Next.js tinggal ditambah di sini:
+#   pohonasuh.org, www.pohonasuh.org {
+#       reverse_proxy web-next:3000
+#   }
+
+rest.pohonasuh.org {
+	encode zstd gzip
+	reverse_proxy web:80
+}

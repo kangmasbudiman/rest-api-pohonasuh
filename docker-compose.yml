@@ -1,0 +1,67 @@
+# Stack produksi Pohon Asuh (VPS Ubuntu + Docker).
+#   caddy  → HTTPS otomatis (80/443) → web
+#   web    → nginx internal: file statis public/ + teruskan *.php ke app
+#   app    → php-fpm Laravel (repo di-bind-mount; deploy = git pull + restart)
+#   mysql  → MySQL 8 + volume data
+#
+# Nilai ${...} dibaca dari .env (file Laravel yang sama).
+# Deploy awal: lihat catatan di .env.example (MYSQL_ROOT_PASSWORD dsb).
+
+services:
+  mysql:
+    image: mysql:8.0
+    restart: unless-stopped
+    environment:
+      MYSQL_ROOT_PASSWORD: ${MYSQL_ROOT_PASSWORD:?Isi MYSQL_ROOT_PASSWORD di .env}
+      MYSQL_DATABASE: ${DB_DATABASE:-pohonasuh2}
+      MYSQL_USER: ${DB_USERNAME:-pohonasuh}
+      MYSQL_PASSWORD: ${DB_PASSWORD:?Isi DB_PASSWORD di .env}
+    volumes:
+      - mysql_data:/var/lib/mysql
+    # Hanya dari dalam VPS (SSH) — untuk import dump & admin; tidak publik.
+    ports:
+      - "127.0.0.1:3306:3306"
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-p${MYSQL_ROOT_PASSWORD}"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+
+  app:
+    build:
+      context: .
+      dockerfile: docker/php/Dockerfile
+    restart: unless-stopped
+    volumes:
+      - .:/var/www
+    depends_on:
+      mysql:
+        condition: service_healthy
+
+  web:
+    image: nginx:1.27-alpine
+    restart: unless-stopped
+    volumes:
+      - ./docker/nginx/default.conf:/etc/nginx/conf.d/default.conf:ro
+      - ./public:/var/www/public:ro
+    depends_on:
+      - app
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./docker/caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - web
+
+volumes:
+  mysql_data:
+  caddy_data:
+  caddy_config:
