@@ -1,0 +1,30 @@
+/node_modules
+/public/hot
+/public/storage
+/storage/*.key
+/vendor
+.env
+.env.backup
+.phpunit.result.cache
+docker-compose.override.yml
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+/.idea
+/.vscode
+
+# macOS / junk lokal
+.DS_Store
+error_log
+screenlog*.??
+
+# Rahasia & data runtime (disalin manual saat deploy, JANGAN di-commit):
+# - storage/app/firebase  → service account FCM
+# - storage/app/backups   → dump DB (.sql.gz)
+/storage/app/firebase
+/storage/app/backups
+
+# Upload runtime (produksi punya file sendiri — hanya folder yang dijaga)
+/public/assets/*
+!/public/assets/.gitignore

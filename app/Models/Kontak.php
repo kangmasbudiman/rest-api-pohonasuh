@@ -1,0 +1,16 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Kontak extends Model
+{
+    use HasFactory;
+    protected $guarded = ['id'];
+
+    protected $table = 'kontak';
+    protected $fillable = ['nama', 'telepon', 'whatsapp', 'email'];
+    protected $primaryKey = 'id';
+}

@@ -1,0 +1,25 @@
+<?php
+
+namespace App\Models;
+
+use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Model;
+
+class Pohon extends Model
+{
+    use HasFactory;
+    protected $guarded = ['id'];
+
+    protected $table='data_pohon';
+    protected $fillable=['gpscode','latitude','longitude','desa','provinsi','idpohon',
+    'species','family','localname','status','jenis','diameter','tinggi',
+    'keliling','dpl','slope','manfaat','soil','surveyor','tgl_survey',
+    'fotografer','dilihat','hit','tampil','beku','score','tgl_pesan','tgl_adopt',
+    'price','cur','adopted','dur','methode','pengasuh','gfrom','nama','catatan','invoice',
+    'admin','proses','keterangan','qrcode','harga'];
+    protected $primaryKey='id';
+
+
+
+
+}
