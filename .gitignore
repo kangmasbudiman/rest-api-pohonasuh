@@ -28,3 +28,4 @@ screenlog*.??
 # Upload runtime (produksi punya file sendiri — hanya folder yang dijaga)
 /public/assets/*
 !/public/assets/.gitignore
+/public/upload

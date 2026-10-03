@@ -1,13 +1,17 @@
 # Caddy = pintu masuk publik satu-satunya: SSL Let's Encrypt otomatis
-# (terbit & perpanjang sendiri). DNS rest.pohonasuh.org harus sudah
+# (terbit & perpanjang sendiri). DNS kedua domain di bawah harus sudah
 # mengarah ke VPS sebelum stack dinyalakan.
 #
+# rest.pohonasuh.io  = domain API utama yang baru (web Next.js + data baru).
+# rest.pohonasuh.org = WAJIB tetap dilayani — aplikasi mobile yang sudah
+#   terbit di Play Store memanggil https://rest.pohonasuh.org/api.
+#
 # Nanti website Next.js tinggal ditambah di sini:
-#   pohonasuh.org, www.pohonasuh.org {
+#   pohonasuh.io, www.pohonasuh.io {
 #       reverse_proxy web-next:3000
 #   }
 
-rest.pohonasuh.org {
+rest.pohonasuh.io, rest.pohonasuh.org {
 	encode zstd gzip
 	reverse_proxy web:80
 }
