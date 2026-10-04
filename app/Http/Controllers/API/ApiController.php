@@ -4062,7 +4062,9 @@ public function confirmasipembayaran(Request $request){
     $p->nama = '';
     $p->keterangan = '';
     $p->qrcode = '';
-    $p->foto_pohon = $request->input('foto_pohon') ?? '';
+    [$fotoUrl, $fotoErr] = $this->prosesFotoPohon($request);
+    if ($fotoErr) return $fotoErr;
+    $p->foto_pohon = $fotoUrl ?? ($request->input('foto_pohon') ?? '');
     $p->save();
 
     return response()->json([
@@ -4313,6 +4315,30 @@ public function confirmasipembayaran(Request $request){
 
   // ===== Edit/hapus pohon untuk admin web =====
 
+  // Upload foto utama pohon (param file "foto" di editpohon/tambahpohon):
+  // simpan ke public/upload/pohon, balas [url|null, errorResponse|null].
+  // URL dibangun dari origin request sehingga selalu menunjuk server API.
+  private function prosesFotoPohon(Request $request){
+    if (!$request->hasFile('foto')) return [null, null];
+    $file = $request->file('foto');
+    $ext = strtolower($file->getClientOriginalExtension());
+    if (!in_array($ext, ['jpg','jpeg','png','webp'])) {
+      return [null, response()->json(['value' => '400', 'pesan' => 'Ekstensi foto harus jpg/jpeg/png/webp'], 400)];
+    }
+    if ($file->getSize() > 2 * 1024 * 1024) {
+      return [null, response()->json(['value' => '400', 'pesan' => 'Ukuran foto maksimal 2MB'], 400)];
+    }
+    $kode = preg_replace('/[^A-Za-z0-9_-]/', '', (string)$request->input('idpohon'));
+    $name_file = 'pohon_'.$kode.'_'.time().'_'.strtoupper(substr(md5(uniqid(rand(), true)), 0, 4)).'.'.$ext;
+    $destinationPath = base_path('public/upload/pohon');
+    if (!file_exists($destinationPath)) {
+      mkdir($destinationPath, 0775, true);
+    }
+    $file->move($destinationPath, $name_file);
+    $url = $request->getSchemeAndHttpHost().str_replace('/index.php', '', $request->getBaseUrl()).'/upload/pohon/'.$name_file;
+    return [$url, null];
+  }
+
   public function editpohon(Request $request){
     $idpohon = trim((string)$request->input('idpohon'));
     $p = Pohon::where('idpohon', $idpohon)->first();
@@ -4339,7 +4365,10 @@ public function confirmasipembayaran(Request $request){
       $p->harga = $harga;
       $p->price = $harga;
     }
-    if ($request->filled('foto_pohon')) $p->foto_pohon = trim((string)$request->input('foto_pohon'));
+    [$fotoUrl, $fotoErr] = $this->prosesFotoPohon($request);
+    if ($fotoErr) return $fotoErr;
+    if ($fotoUrl !== null) $p->foto_pohon = $fotoUrl;
+    elseif ($request->filled('foto_pohon')) $p->foto_pohon = trim((string)$request->input('foto_pohon'));
     $p->save();
     return response()->json(['value' => '200', 'pesan' => 'Success']);
   }
