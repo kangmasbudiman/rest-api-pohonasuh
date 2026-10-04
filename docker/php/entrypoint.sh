@@ -5,7 +5,7 @@ set -e
 mkdir -p storage/framework/cache/data storage/framework/sessions \
          storage/framework/testing storage/framework/views storage/logs \
          storage/app/backups storage/app/firebase storage/app/public \
-         public/assets bootstrap/cache
-chown -R www-data:www-data storage bootstrap/cache public/assets
+         public/assets public/upload bootstrap/cache
+chown -R www-data:www-data storage bootstrap/cache public/assets public/upload
 
 exec "$@"
