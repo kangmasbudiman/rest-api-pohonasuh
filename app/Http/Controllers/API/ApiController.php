@@ -4030,6 +4030,12 @@ public function confirmasipembayaran(Request $request){
         'pesan' => 'idpohon, localname, desa, dan harga wajib diisi',
       ], 400);
     }
+    if (strlen($idpohon) > 7) {
+      return response()->json([
+        'value' => '400',
+        'pesan' => 'Kode pohon maksimal 7 karakter',
+      ], 400);
+    }
     if (Pohon::where('idpohon', $idpohon)->exists()) {
       return response()->json([
         'value' => '409',
