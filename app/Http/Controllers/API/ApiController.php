@@ -183,7 +183,7 @@ class ApiController extends Controller
     $items = array();
     foreach ($data as $k) {
       $b['urlGambar'] = $k->urlGambar;
-     
+
       array_push($items, $b);
     }
     return response()->json($items);
@@ -193,6 +193,49 @@ class ApiController extends Controller
     return response()->json($items);
   }
   }
+
+    // Progres tagging satu order (web, sisi donatur): semua pohon dalam
+    // invoice + status proses + bukti foto. Foto di-scope per idadopsi —
+    // riwayat foto pohon dari siklus adopsi LAMA (idadopsi 0/NULL) tidak
+    // ikut, berbeda dgn lihatfototaging yang query per idpohon.
+    public function fototagingorder(Request $request){
+      $invoice = $request->input('invoice');
+      if (!$invoice) {
+        return response()->json([
+            'value' => '400',
+            'pesan' => 'invoice wajib diisi',
+        ], 400);
+      }
+      $rows = Dataadopsi::join('data_pohon', 'data_adopsi.idpohon', '=', 'data_pohon.idpohon')
+          ->where('data_adopsi.invoice', $invoice)
+          ->orderBy('data_adopsi.id')
+          ->get(['data_adopsi.id', 'data_adopsi.idpohon', 'data_adopsi.proses',
+              'data_pohon.localname', 'data_pohon.desa']);
+
+      $items = array();
+      foreach ($rows as $k) {
+          $b['idadopsi'] = $k->id;
+          $b['idpohon'] = $k->idpohon;
+          $b['proses'] = (int) $k->proses;
+          $b['localname'] = $k->localname;
+          $b['desa'] = $k->desa;
+          $b['foto'] = Fototaging::where('idadopsi', $k->id)
+              ->orderBy('id')
+              ->get(['urlGambar', 'tanggal'])
+              ->map(function ($f) {
+                  return [
+                      'url' => $f->urlGambar,
+                      // kolom DATE kembali sebagai string Y-m-d (model tak
+                      // memakai cast $dates)
+                      'tanggal' => $f->tanggal !== null ? (string) $f->tanggal : null,
+                  ];
+              })
+              ->values()
+              ->all();
+          array_push($items, $b);
+      }
+      return response()->json($items);
+    }
     
     
     

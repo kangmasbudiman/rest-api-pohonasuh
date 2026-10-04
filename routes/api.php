@@ -126,6 +126,7 @@ Route::post('updatenoted', [ApiController::class, 'updatenoted']);
 Route::post('getnoted', [ApiController::class, 'getnoted']);
 Route::post('feedesa', [ApiController::class, 'feedesa']);
 Route::post('lihatfototaging', [ApiController::class, 'lihatfototaging']);
+Route::post('fototagingorder', [ApiController::class, 'fototagingorder']);
 /*integrasi website*/
 Route::post('pohonbykode', [ApiController::class, 'pohonbykode']);
 Route::get('sertifikatpublik/{certnum}', [ApiController::class, 'sertifikatpublik'])
