@@ -1779,17 +1779,20 @@ public function updateduration(Request $request){
   }
 
   // Normalisasi no HP untuk Mayar: buang spasi/tanda, +62/62 → 08…
-  // Kosong → nomor default .env (member belum mengisi kolom hp).
+  // Kosong ATAU hasil buang-tanda tak sampai 10 digit (Mayar wajib ≥10,
+  // mis. hp berisi "usercoba") → nomor default .env.
   private function mayarMobile($hp){
-    $b = trim((string)$hp);
+    $b = preg_replace('/[^0-9+]/', '', trim((string)$hp));
     if ($b === '') {
-      return (string)env('MAYAR_DEFAULT_MOBILE', '085709947075');
+      $b = (string)env('MAYAR_DEFAULT_MOBILE', '085709947075');
     }
-    $b = preg_replace('/[^0-9+]/', '', $b);
     if (str_starts_with($b, '+62')) {
       $b = '0' . substr($b, 3);
     } elseif (str_starts_with($b, '62') && strlen($b) > 10) {
       $b = '0' . substr($b, 2);
+    }
+    if (strlen($b) < 10) {
+      return (string)env('MAYAR_DEFAULT_MOBILE', '085709947075');
     }
     return $b;
   }
