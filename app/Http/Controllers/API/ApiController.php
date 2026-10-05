@@ -1334,7 +1334,7 @@ public function allcertificate(){
   public function mycertificate(Request $request){
       
       $data=Confirmasi::where('idpengasuh',$request->idpengasuh)
-      ->orderBy('tanggal','desc')
+      ->orderByDesc('id')
        ->get();
    
         if(count($data)>0){
@@ -1344,6 +1344,14 @@ public function allcertificate(){
                  $namaDesa = Dataadopsi::whereIn('invoice', $data->pluck('invoice'))
                     ->pluck('desa')->unique()->filter();
                  $infoDesa = Desa::whereIn('nama', $namaDesa)->get()->keyBy('nama');
+                 // preload daftar pohon per invoice (blok Adopted Trees di
+                 // sertifikat mobile: jenis + Ø + tonase per batang).
+                 $pohonPerInvoice = Dataadopsi::join('data_pohon', 'data_pohon.idpohon', '=', 'data_adopsi.idpohon')
+                    ->whereIn('data_adopsi.invoice', $data->pluck('invoice'))
+                    ->groupBy('data_adopsi.invoice', 'data_pohon.idpohon', 'data_pohon.localname', 'data_pohon.species', 'data_pohon.diameter')
+                    ->orderBy('data_pohon.idpohon')
+                    ->get(['data_adopsi.invoice', 'data_pohon.idpohon', 'data_pohon.localname', 'data_pohon.species', 'data_pohon.diameter'])
+                    ->groupBy('invoice');
                  foreach ($data as $k) {
                  $b['id'] = $k->id;
                  $b['invoice'] = $k->invoice;
@@ -1369,10 +1377,15 @@ public function allcertificate(){
                 }else{
                     $b['tgl_exp'] = "-";
                 }
-     
-              
-                 
-                 
+                 $b['pohon_list'] = ($pohonPerInvoice[$k->invoice] ?? collect())->map(function ($p) {
+                    return [
+                        'idpohon' => $p->idpohon,
+                        'localname' => $p->localname,
+                        'species' => $p->species,
+                        'diameter' => (int) $p->diameter,
+                        'tonase' => $this->tonaseDariDiameter($p->diameter),
+                    ];
+                 })->values()->all();
                  array_push($items, $b);
         }
         return response()->json($items);
@@ -1845,7 +1858,7 @@ public function getconfirmasi(Request $request){
       
       
       $data=Confirmasi::where('idpengasuh',$request->idmember)
-      ->orderBy('tanggal','desc')
+      ->orderByDesc('id')
        ->get();
    
         if(count($data)>0){
@@ -4053,7 +4066,32 @@ public function confirmasipembayaran(Request $request){
       $m = Member::find($da->pengasuh);
       $da->nama = $m ? $m->name : $nama;
     }
+    // Daftar pohon per invoice untuk blok bawah sertifikat (jenis + Ø +
+    // tonase per batang). idpohon tidak unik → groupBy kolom terpilih agar
+    // aman di ONLY_FULL_GROUP_BY.
+    $da->pohon_list = Dataadopsi::join('data_pohon', 'data_pohon.idpohon', '=', 'data_adopsi.idpohon')
+      ->where('data_adopsi.certnum', $certnum)
+      ->groupBy('data_pohon.idpohon', 'data_pohon.localname', 'data_pohon.species', 'data_pohon.diameter')
+      ->orderBy('data_pohon.idpohon')
+      ->get(['data_pohon.idpohon', 'data_pohon.localname', 'data_pohon.species', 'data_pohon.diameter'])
+      ->map(function ($p) {
+        return [
+          'idpohon' => $p->idpohon,
+          'localname' => $p->localname,
+          'species' => $p->species,
+          'diameter' => (int) $p->diameter,
+          'tonase' => $this->tonaseDariDiameter($p->diameter),
+        ];
+      })->values();
     return response()->json($da);
+  }
+
+  // Estimasi biomassa (ton) dari diameter (cm) — Brown 1997, massa jenis
+  // kayu tropika rata-rata 0.6. Sama dengan accessor Pohon::tonase.
+  private function tonaseDariDiameter($diameterCm) {
+    $d = (float) $diameterCm;
+    if ($d <= 0) return null;
+    return round(0.11 * 0.6 * pow($d, 2.53) / 1000, 1);
   }
 
   // Total donasi terverifikasi untuk halaman transparansi keuangan web.
