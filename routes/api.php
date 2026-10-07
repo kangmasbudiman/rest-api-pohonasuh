@@ -51,6 +51,10 @@ Route::post('updatedesapetugas', [ApiController::class, 'updatedesapetugas']);
 Route::post('pohonmapdesa', [ApiController::class, 'pohonmapdesa']);
 Route::get('getmembers', [ApiController::class, 'getmembers']);
 Route::post('updatestatusmember', [ApiController::class, 'updatestatusmember']);
+/* Kelola profil member */
+Route::post('updateprofil', [ApiController::class, 'updateprofil']);
+Route::post('gantipassword', [ApiController::class, 'gantipassword']);
+Route::post('uploadfotoprofil', [ApiController::class, 'uploadfotoprofil']);
 Route::get('allcertificate', [ApiController::class, 'allcertificate']);
 Route::get('adopsilist', [ApiController::class, 'adopsilist']);
 Route::get('reportprice', [ApiController::class, 'reportprice']);
@@ -131,6 +135,7 @@ Route::post('fototagingorder', [ApiController::class, 'fototagingorder']);
 Route::post('pohonbykode', [ApiController::class, 'pohonbykode']);
 Route::get('sertifikatpublik/{certnum}', [ApiController::class, 'sertifikatpublik'])
   ->where('certnum', '.*'); // certnum mengandung '/' (mis. 001/LPHD-RA/2026)
+Route::post('kirimemailsertifikat', [ApiController::class, 'kirimemailsertifikat']);
 Route::get('totaldonasi', [ApiController::class, 'totaldonasi']);
 Route::post('tambahpohon', [ApiController::class, 'tambahpohon']);
 Route::post('uploadcover', [ApiController::class, 'uploadcover']);

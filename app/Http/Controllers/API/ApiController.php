@@ -37,6 +37,8 @@ use App\Models\Partner;
 
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Mail;
+use App\Mail\SertifikatHadiah;
 use Kreait\Firebase\Factory;
 use Kreait\Firebase\Messaging\CloudMessage;
 use Kreait\Firebase\Messaging\Notification;
@@ -537,6 +539,156 @@ public function updatestatusmember(Request $request){
     return response()->json([
         'value'=>'200',
         'pesan'=>'Success',
+    ]);
+}
+
+// ===== Kelola profil member (web + mobile) =====
+
+// Ubah data diri member sendiri (nama, hp, pekerjaan, alamat).
+// hp wajib unik karena loginuser mencari member via `orwhere hp` —
+// duplikat membuat login ambigu. Response selalu 200 + value code agar
+// pesan error tetap terbaca client (pola loginuser).
+public function updateprofil(Request $request){
+    $id=$request->input('id');
+    $name=trim((string)$request->input('name'));
+    $hp=trim((string)$request->input('hp'));
+
+    if($id===null || $name==='' || $hp===''){
+        return response()->json([
+            'value'=>'400',
+            'pesan'=>'Nama dan nomor HP wajib diisi',
+        ]);
+    }
+
+    $m=Member::find($id);
+    if(!$m){
+        return response()->json([
+            'value'=>'404',
+            'pesan'=>'Member tidak ditemukan',
+        ]);
+    }
+
+    $hpLain=Member::where('hp',$hp)->where('id','!=',$id)->first();
+    if($hpLain){
+        return response()->json([
+            'value'=>'409',
+            'pesan'=>'Nomor HP sudah dipakai akun lain',
+        ]);
+    }
+
+    $m->name=$name;
+    $m->hp=$hp;
+    if($request->filled('job')) $m->job=trim((string)$request->input('job'));
+    if($request->filled('address')) $m->address=trim((string)$request->input('address'));
+    $m->update();
+
+    return response()->json([
+        'value'=>'200',
+        'pesan'=>'Success',
+    ]);
+}
+
+// Ganti password member sendiri. Hash sama dengan register: md5(sha1(raw)).
+public function gantipassword(Request $request){
+    $id=$request->input('id');
+    $lama=(string)$request->input('passe_lama');
+    $baru=(string)$request->input('passe_baru');
+
+    if($id===null || $lama==='' || $baru===''){
+        return response()->json([
+            'value'=>'400',
+            'pesan'=>'Password lama dan baru wajib diisi',
+        ]);
+    }
+    if(strlen($baru)<6){
+        return response()->json([
+            'value'=>'400',
+            'pesan'=>'Password baru minimal 6 karakter',
+        ]);
+    }
+
+    $m=Member::find($id);
+    if(!$m){
+        return response()->json([
+            'value'=>'404',
+            'pesan'=>'Member tidak ditemukan',
+        ]);
+    }
+
+    if(md5(sha1($lama)) !== $m->passe){
+        return response()->json([
+            'value'=>'401',
+            'pesan'=>'Password lama tidak sesuai',
+        ]);
+    }
+
+    $m->passe=md5(sha1($baru));
+    $m->update();
+
+    return response()->json([
+        'value'=>'200',
+        'pesan'=>'Success',
+    ]);
+}
+
+// Upload foto profil member (multipart param "foto", jpg/jpeg/png/webp ≤2MB —
+// pola prosesFotoPohon). File lama milik user sama dihapus agar tidak yatim.
+public function uploadfotoprofil(Request $request){
+    $id=$request->input('id');
+    $m=$id!==null?Member::find($id):null;
+    if(!$m){
+        return response()->json([
+            'value'=>'404',
+            'pesan'=>'Member tidak ditemukan',
+        ]);
+    }
+
+    if(!$request->hasFile('foto')){
+        return response()->json([
+            'value'=>'400',
+            'pesan'=>'File foto wajib dilampirkan',
+        ]);
+    }
+    $file=$request->file('foto');
+    $ext=strtolower($file->getClientOriginalExtension());
+    if(!in_array($ext,['jpg','jpeg','png','webp'])){
+        return response()->json([
+            'value'=>'400',
+            'pesan'=>'Ekstensi foto harus jpg/jpeg/png/webp',
+        ]);
+    }
+    if($file->getSize()>2*1024*1024){
+        return response()->json([
+            'value'=>'400',
+            'pesan'=>'Ukuran foto maksimal 2MB',
+        ]);
+    }
+
+    $name_file='profil_'.$id.'_'.time().'_'.strtoupper(substr(md5(uniqid(rand(), true)),0,4)).'.'.$ext;
+    $destinationPath=base_path('public/upload/profil');
+    if(!file_exists($destinationPath)){
+        mkdir($destinationPath,0775,true);
+    }
+    $file->move($destinationPath,$name_file);
+    $url=$request->getSchemeAndHttpHost().str_replace('/index.php','',$request->getBaseUrl()).'/upload/profil/'.$name_file;
+
+    // Hapus foto lama bila file upload profil milik user ini (jangan sentuh
+    // URL eksternal).
+    $lamaFile=(string)$m->foto;
+    if($lamaFile!=='' && str_contains($lamaFile,'/upload/profil/profil_'.$id.'_')){
+        $basename=basename(parse_url($lamaFile,PHP_URL_PATH) ?: '');
+        if($basename!=='' && file_exists($destinationPath.'/'.$basename)){
+            @unlink($destinationPath.'/'.$basename);
+        }
+    }
+
+    $m->foto=$url;
+    $m->update();
+
+    return response()->json([
+        'value'=>'200',
+        'pesan'=>'Success',
+        'foto'=>$url,
     ]);
 }
 
@@ -3347,11 +3499,14 @@ public function confirmasipembayaran(Request $request){
             'hp' => $data->hp,
             'admin' => $data->admin,
             'desa' => $data->nama,
-            
-            
+            'foto' => $data->foto ?: '',
+            'job' => $data->job,
+            'address' => $data->address,
+
+
              ]);
         }else{
-            
+
               $data1=Member::where("member.id",$id)->first();
             if($data1){
                    return response()->json([
@@ -3360,9 +3515,12 @@ public function confirmasipembayaran(Request $request){
             'emaile' => $data1->emaile,
             'hp' => $data1->hp,
             'admin' => $data1->admin,
-            
-            
-            
+            'foto' => $data1->foto ?: '',
+            'job' => $data1->job,
+            'address' => $data1->address,
+
+
+
              ]);
             }
             
@@ -4052,13 +4210,24 @@ public function confirmasipembayaran(Request $request){
   // confirmation.jml_pohon utk data lama). Fallback nama via member utk
   // baris lama yang kolom nama-nya kosong.
   public function sertifikatpublik($certnum){
+    $da = $this->dataSertifikat($certnum);
+    if (!$da) {
+      return response()->json(null, 404);
+    }
+    return response()->json($da);
+  }
+
+  // Data sertifikat per certnum — dipakai bersama sertifikatpublik (web) dan
+  // kirimemailsertifikat (hadiah). JANGAN ubah bentuk data: cert-check.mjs
+  // terkalibrasi ke response sertifikatpublik.
+  private function dataSertifikat($certnum){
     $da = Dataadopsi::join('desa', 'desa.nama', '=', 'data_adopsi.desa')
       ->join('data_pohon', 'data_pohon.idpohon', '=', 'data_adopsi.idpohon')
       ->where('data_adopsi.certnum', $certnum)
       ->first(['data_adopsi.*', 'desa.provinsi', 'desa.kabupaten', 'desa.kecamatan',
         'data_pohon.localname', 'data_pohon.species', 'data_pohon.foto_pohon']);
     if (!$da || trim((string)$da->certnum) === '') {
-      return response()->json(null, 404);
+      return null;
     }
     $da->jml_pohon = Dataadopsi::where('certnum', $certnum)->count();
     $nama = trim((string) $da->nama);
@@ -4083,7 +4252,59 @@ public function confirmasipembayaran(Request $request){
           'tonase' => $this->tonaseDariDiameter($p->diameter),
         ];
       })->values();
-    return response()->json($da);
+    return $da;
+  }
+
+  // Kirim email "sertifikat hadiah" ke penerima adopsi hadiah (dipicu donatur
+  // dari halaman order web). SMTP belum dikonfigurasi → balas fail-soft.
+  public function kirimemailsertifikat(Request $request){
+    $certnum = trim((string)$request->input('certnum'));
+    $toEmail = trim((string)$request->input('to_email'));
+    $toName = trim((string)$request->input('to_name'));
+    $link = trim((string)$request->input('link'));
+
+    if ($toEmail === '' || !filter_var($toEmail, FILTER_VALIDATE_EMAIL)) {
+      return response()->json([
+        'value' => '400',
+        'pesan' => 'Alamat email penerima tidak valid',
+      ]);
+    }
+    if (!preg_match('#^https?://#i', $link) || !str_contains($link, '/sertifikat/')) {
+      return response()->json([
+        'value' => '400',
+        'pesan' => 'Tautan sertifikat tidak valid',
+      ]);
+    }
+
+    $da = $this->dataSertifikat($certnum);
+    if (!$da) {
+      return response()->json([
+        'value' => '404',
+        'pesan' => 'Sertifikat tidak ditemukan',
+      ]);
+    }
+
+    $pengasuh = Member::find($da->pengasuh);
+    $fromName = $pengasuh ? $pengasuh->name : 'Seseorang';
+    if ($toName === '') $toName = $da->nama;
+
+    // Label ringkas pohon hadiah utk isi email, mis. "2 pohon: Meranti, Jambu".
+    $localnames = collect($da->pohon_list)->pluck('localname')->filter()->unique()->values();
+    $pohonLabel = $da->jml_pohon . ' pohon' . ($localnames->isNotEmpty() ? ': ' . $localnames->implode(', ') : '');
+
+    try {
+      Mail::to($toEmail)->send(new SertifikatHadiah($toName, $fromName, $pohonLabel, $link));
+      return response()->json([
+        'value' => '200',
+        'pesan' => 'Terkirim',
+      ]);
+    } catch (\Throwable $e) {
+      Log::error('kirimemailsertifikat: gagal kirim ke ' . $toEmail . ' — ' . $e->getMessage());
+      return response()->json([
+        'value' => '500',
+        'pesan' => 'Email gagal terkirim — SMTP belum dikonfigurasi, hubungi admin',
+      ]);
+    }
   }
 
   // Estimasi biomassa (ton) dari diameter (cm) — Brown 1997, massa jenis
@@ -4597,6 +4818,7 @@ public function confirmasipembayaran(Request $request){
                       'name' => $ceklogin->name,
                       'id' => $ceklogin->id,
                       'admin' => $ceklogin->admin,
+                      'foto' => $ceklogin->foto ?: '',
                     ]);
                         }
                       /*
@@ -4657,9 +4879,10 @@ public function confirmasipembayaran(Request $request){
                       'name' => $ceklogin->name,
                       'id' => $ceklogin->id,
                       'admin' => $ceklogin->admin,
+                      'foto' => $ceklogin->foto ?: '',
                     ]);
                         }
-                     
+
                      
                      /*
                     if(!$ceklogin || !Hash::check($password, $ceklogin->passe)){
