@@ -19,7 +19,17 @@ class Pohon extends Model
     'admin','proses','keterangan','qrcode','harga'];
     protected $primaryKey='id';
 
+    // Estimasi biomassa (ton) otomatis ikut serialisasi JSON (pohonbykode,
+    // pohonmap, dll). Rumus alometrik tropika Brown 1997, massa jenis kayu
+    // rata-rata 0.6: W(kg) = 0.11 * 0.6 * D^2.53 (D dalam cm).
+    protected $appends = ['tonase'];
 
-
-
+    public function getTonaseAttribute()
+    {
+        $d = (float) ($this->attributes['diameter'] ?? 0);
+        if ($d <= 0) {
+            return null;
+        }
+        return round(0.11 * 0.6 * pow($d, 2.53) / 1000, 1);
+    }
 }
