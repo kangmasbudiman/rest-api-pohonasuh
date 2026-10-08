@@ -1736,6 +1736,51 @@ public function updateduration(Request $request){
   }
 
 
+  // Batas pembayaran order: 1x24 jam sejak order dibuat.
+  // Order "Menunggu Pembayaran" (confirmation='no' & belum ada bukti transfer)
+  // yang melewati batas dibatalkan otomatis: pohon kembali ke daftar siap
+  // adopsi, data adopsi + foto taging dihapus, donatur diberi Pesan + push
+  // (pola batalverivication). Dipanggil lazy dari endpoint daftar pohon /
+  // getconfirmasi / createinvoice karena VPS tidak punya cron.
+  private function kedaluwarsaPembayaran(){
+    $konf = Confirmasi::where('confirmation','no')
+      ->where(function($q){ $q->whereNull('foto')->orWhere('foto',''); })
+      ->where('created_at','<', now()->subDay())
+      ->get();
+    foreach ($konf as $k) {
+      // re-read terbaru: donor bisa saja barusan upload bukti / bayar mayar
+      $fresh = Confirmasi::find($k->id);
+      if (!$fresh || $fresh->confirmation !== 'no' || $fresh->foto) {
+        continue;
+      }
+      $adopsi = Dataadopsi::where('invoice',$fresh->invoice)->get();
+      foreach ($adopsi as $a) {
+        Fototaging::where('idadopsi',$a->id)->delete();
+        $pohon = Pohon::where('idpohon',$a->idpohon)->first();
+        if ($pohon) {
+          $pohon->adopted = 'available';
+          $pohon->pengasuh = null;
+          $pohon->nama = '';
+          $pohon->invoice = null;
+          $pohon->tgl_adopt = null;
+          $pohon->update();
+        }
+      }
+      Dataadopsi::where('invoice',$fresh->invoice)->delete();
+      $fresh->confirmation = 'cancel';
+      $fresh->confirmationBy = 'expired';
+      $fresh->update();
+
+      $pesan = new Pesan();
+      $pesan->idmember = $fresh->idpengasuh;
+      $pesan->pesan = 'Sorry, your order was canceled because it passed the 1x24 hour payment deadline. The tree has been returned to the adoption list.';
+      $pesan->status = 'noread';
+      $pesan->save();
+      $this->kirimPush($fresh->idpengasuh, 'Order Canceled', 'Sorry, your order passed the 1x24 hour payment deadline and was canceled');
+    }
+  }
+
+
   // Membatalkan verifikasi pembayaran: order dibatalkan, semua pohon pada
   // invoice dikembalikan ke "available" agar bisa diadopsi user lain, dan
   // data adopsi + foto taging terkait dihapus.
@@ -1799,6 +1844,7 @@ public function updateduration(Request $request){
         'message' => 'MAYAR_API_KEY belum dikonfigurasi di server',
       ]);
     }
+    $this->kedaluwarsaPembayaran();
 
     $conf = null;
     if ($request->filled('id')) {
@@ -1810,6 +1856,13 @@ public function updateduration(Request $request){
       return response()->json([
         'code' => 404,
         'message' => 'Confirmation Not Found',
+      ]);
+    }
+
+    if ($conf->confirmation === 'cancel') {
+      return response()->json([
+        'code' => 409,
+        'message' => 'Order sudah dibatalkan (batas pembayaran 1x24 jam terlewati)',
       ]);
     }
 
@@ -1970,6 +2023,12 @@ public function updateduration(Request $request){
       return response()->json(['ok' => true, 'message' => 'sudah diverifikasi', 'id' => $conf->id]);
     }
 
+    // order sudah kadaluarsa batas pembayaran 1x24 jam → jangan verifikasi
+    if ($conf->confirmation === 'cancel') {
+      Log::warning('webhook mayar: pembayaran datang utk order cancel', ['id' => $conf->id, 'invoice' => $conf->invoice]);
+      return response()->json(['ok' => true, 'message' => 'order sudah dibatalkan', 'id' => $conf->id]);
+    }
+
     $conf->confirmation = 'yes';
     $conf->confirmationBy = 'mayar';
     $conf->update();
@@ -2014,8 +2073,8 @@ public function updateduration(Request $request){
 
 
 public function getconfirmasi(Request $request){
-      
-      
+      $this->kedaluwarsaPembayaran();
+
       $data=Confirmasi::where('idpengasuh',$request->idmember)
       ->orderByDesc('id')
        ->get();
@@ -2029,6 +2088,7 @@ public function getconfirmasi(Request $request){
                  $b['tanggal'] = $k->tanggal;
                  $b['jml_pohon'] = $k->jml_pohon;
                  $b['confirmation'] = $k->confirmation;
+                 $b['created_at'] = $k->created_at;
                  $b['foto'] = !empty($k->foto)
                      ? $request->getSchemeAndHttpHost().str_replace('/index.php', '', $request->getBaseUrl()).'/upload/slider/'.$k->foto
                      : null;
@@ -3557,6 +3617,7 @@ public function confirmasipembayaran(Request $request){
 
 
   public function filtertrees(Request $request){
+    $this->kedaluwarsaPembayaran();
     $status=$request->adopted;
     $data=Pohon::where('adopted',$status)->get();
 
@@ -3683,6 +3744,7 @@ public function confirmasipembayaran(Request $request){
 
 
   public function pohonhighlight(){
+    $this->kedaluwarsaPembayaran();
     $data=Pohon::where([['highlight',1],['adopted','available']])->get();
     if(count($data)>0){
       $items = array();
@@ -3862,6 +3924,7 @@ public function confirmasipembayaran(Request $request){
 
   public function pohon(Request $request){
    // $data=Pohon::where([['highlight',2],['adopted','available']])->get();
+    $this->kedaluwarsaPembayaran();
 
       $keyword = $request->input('keyword', '');
 
