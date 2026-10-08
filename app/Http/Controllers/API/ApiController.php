@@ -1742,10 +1742,14 @@ public function updateduration(Request $request){
   // adopsi, data adopsi + foto taging dihapus, donatur diberi Pesan + push
   // (pola batalverivication). Dipanggil lazy dari endpoint daftar pohon /
   // getconfirmasi / createinvoice karena VPS tidak punya cron.
+  // Jendela 24 jam–7 hari: order legacy yang lebih tua dari 7 hari TIDAK
+  // tersentuh (±90 order pending 2018–2023 milik donor lama — membatalkan
+  // sekaligus akan mengirim notifikasi tidak relevan bertahun-tahun kemudian).
   private function kedaluwarsaPembayaran(){
     $konf = Confirmasi::where('confirmation','no')
       ->where(function($q){ $q->whereNull('foto')->orWhere('foto',''); })
       ->where('created_at','<', now()->subDay())
+      ->where('created_at','>', now()->subDays(7))
       ->get();
     foreach ($konf as $k) {
       // re-read terbaru: donor bisa saja barusan upload bukti / bayar mayar
