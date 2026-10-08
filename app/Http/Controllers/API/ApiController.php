@@ -34,6 +34,7 @@ use App\Models\SpeciesCatalog;
 use App\Models\Testimoni;
 use App\Models\Partner;
 use App\Models\Cerita;
+use App\Models\Pembayarantagging;
 
 
 use Illuminate\Support\Facades\Http;
@@ -812,6 +813,7 @@ public function allcertificate(){
             return response()->json(['value' => 404, 'pesan' => 'Data adopsi tidak ditemukan']);
         }
         $idpohon = $data->idpohon;
+        Pembayarantagging::where('idadopsi', $data->id)->delete();
         $data->delete();
 
         $masihAda = Dataadopsi::where('idpohon', $idpohon)->exists();
@@ -1761,6 +1763,7 @@ public function updateduration(Request $request){
       $adopsi = Dataadopsi::where('invoice',$fresh->invoice)->get();
       foreach ($adopsi as $a) {
         Fototaging::where('idadopsi',$a->id)->delete();
+        Pembayarantagging::where('idadopsi',$a->id)->delete();
         $pohon = Pohon::where('idpohon',$a->idpohon)->first();
         if ($pohon) {
           $pohon->adopted = 'available';
@@ -1806,6 +1809,7 @@ public function updateduration(Request $request){
        $adopsi=Dataadopsi::where('invoice',$data->invoice)->get();
        foreach ($adopsi as $a) {
                   Fototaging::where('idadopsi',$a->id)->delete();
+                  Pembayarantagging::where('idadopsi',$a->id)->delete();
                   $pohon=Pohon::where('idpohon',$a->idpohon)->first();
                   if($pohon){
                             $pohon->adopted="available";
@@ -5388,6 +5392,164 @@ public function confirmasipembayaran(Request $request){
         }
         $c->delete();
         return response()->json(['value' => '200', 'pesan' => 'Success']);
+    }
+
+    // ===================== Pencatatan Keuangan (pembayaran pohon tagging) =====================
+    // Daftar pohon "sudah ditagging" — kriteria IDENTIK halaman Order Tagging
+    // web (order terverifikasi + ada foto tagging pada siklus adopsi ini ATAU
+    // proses selesai) — dihitung HIDUP dari data, jadi begitu petugas mencatat
+    // tagging, pohon otomatis muncul di halaman pembayaran tanpa input ulang.
+    // Penerima default = petugas/admin desa yang ditugaskan di desa pohon itu.
+    public function pembayaranlist(Request $request){
+        $rows = DB::table('data_adopsi as a')
+            ->join('confirmation as c', 'c.invoice', '=', 'a.invoice')
+            ->leftJoin(DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'), 'pmin.idpohon', '=', 'a.idpohon')
+            ->leftJoin('data_pohon as p', 'p.id', '=', 'pmin.pmin_id')
+            ->leftJoin('pembayaran_tagging as pt', 'pt.idadopsi', '=', 'a.id')
+            ->where('c.confirmation', 'yes')
+            ->where(function ($q) {
+                $q->where('a.proses', 3)
+                  ->orWhereExists(function ($sub) {
+                      $sub->select(DB::raw(1))->from('foto_tagging as f')->whereColumn('f.idadopsi', 'a.id');
+                  });
+            })
+            ->groupBy('a.id')
+            ->orderByDesc('a.id')
+            ->get([
+                'a.id as idadopsi',
+                'a.idpohon',
+                'a.invoice',
+                'a.nama',
+                'a.price',
+                'a.proses',
+                'a.tgl_adopt',
+                'a.desa',
+                DB::raw('MIN(p.localname) as localname'),
+                DB::raw('(SELECT COUNT(*) FROM foto_tagging f2 WHERE f2.idadopsi = a.id) as jml_foto'),
+                DB::raw('(SELECT MAX(f3.tanggal) FROM foto_tagging f3 WHERE f3.idadopsi = a.id) as tgl_tagging'),
+                DB::raw('MIN(pt.id) as bayar_id'),
+                DB::raw('MIN(pt.penerima) as bayar_penerima'),
+                DB::raw('MIN(pt.jumlah) as bayar_jumlah'),
+                DB::raw('MIN(pt.tanggal) as bayar_tanggal'),
+                DB::raw('MIN(pt.metode) as bayar_metode'),
+                DB::raw('MIN(pt.catatan) as bayar_catatan'),
+            ]);
+
+        $petugasMap = [];
+        foreach (DB::table('desa_petugas as dp')
+            ->join('desa as d', 'd.id', '=', 'dp.iddesa')
+            ->join('member as m', 'm.id', '=', 'dp.idpetugas')
+            ->get(['d.nama', 'm.name']) as $r) {
+            $petugasMap[$r->nama] = isset($petugasMap[$r->nama]) ? $petugasMap[$r->nama] . ', ' . $r->name : $r->name;
+        }
+
+        $items = [];
+        foreach ($rows as $k) {
+            $b['idadopsi'] = $k->idadopsi;
+            $b['idpohon'] = $k->idpohon;
+            $b['invoice'] = $k->invoice;
+            $b['nama'] = $k->nama;
+            $b['price'] = $k->price;
+            $b['proses'] = $k->proses;
+            $b['tgl_adopt'] = $k->tgl_adopt;
+            $b['desa'] = $k->desa;
+            $b['localname'] = $k->localname ?: $k->idpohon;
+            $b['jml_foto'] = (int)$k->jml_foto;
+            $b['tgl_tagging'] = $k->tgl_tagging;
+            $b['petugas_desa'] = isset($petugasMap[$k->desa]) ? $petugasMap[$k->desa] : '';
+            $b['dibayar'] = $k->bayar_id ? true : false;
+            $b['pembayaran'] = $k->bayar_id ? [
+                'id' => $k->bayar_id,
+                'penerima' => $k->bayar_penerima,
+                'jumlah' => $k->bayar_jumlah,
+                'tanggal' => $k->bayar_tanggal,
+                'metode' => $k->bayar_metode,
+                'catatan' => $k->bayar_catatan,
+            ] : null;
+            array_push($items, $b);
+        }
+        return response()->json(['value' => 200, 'data' => $items]);
+    }
+
+    public function tambahpembayaran(Request $request){
+        $adopsi = Dataadopsi::find($request->idadopsi);
+        if (!$adopsi) {
+            return response()->json(['value' => 404, 'pesan' => 'Data adopsi tidak ditemukan'], 404);
+        }
+        $conf = Confirmasi::where('invoice', $adopsi->invoice)->first();
+        if (!$conf || $conf->confirmation !== 'yes') {
+            return response()->json(['value' => 400, 'pesan' => 'Order belum terverifikasi'], 400);
+        }
+        $tagged = $adopsi->proses == 3 || Fototaging::where('idadopsi', $adopsi->id)->exists();
+        if (!$tagged) {
+            return response()->json(['value' => 400, 'pesan' => 'Pohon ini belum ditagging'], 400);
+        }
+        if (Pembayarantagging::where('idadopsi', $adopsi->id)->exists()) {
+            return response()->json(['value' => 409, 'pesan' => 'Pembayaran pohon ini sudah tercatat'], 409);
+        }
+        $jumlah = (int)$request->input('jumlah');
+        if ($jumlah <= 0) {
+            return response()->json(['value' => 400, 'pesan' => 'Jumlah pembayaran tidak valid'], 400);
+        }
+        $tanggal = trim((string)$request->input('tanggal'));
+        if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $tanggal)) {
+            return response()->json(['value' => 400, 'pesan' => 'Tanggal tidak valid (YYYY-MM-DD)'], 400);
+        }
+
+        $penerima = trim((string)$request->input('penerima'));
+        if ($penerima === '') {
+            $petugas = DB::table('desa_petugas as dp')
+                ->join('desa as d', 'd.id', '=', 'dp.iddesa')
+                ->join('member as m', 'm.id', '=', 'dp.idpetugas')
+                ->where('d.nama', $adopsi->desa)
+                ->pluck('m.name');
+            $penerima = $petugas->implode(', ');
+        }
+        if ($penerima === '') {
+            return response()->json(['value' => 400, 'pesan' => 'Belum ada petugas yang ditugaskan di desa pohon ini — isi penerima secara manual'], 400);
+        }
+
+        $pt = new Pembayarantagging();
+        $pt->idadopsi = $adopsi->id;
+        $pt->penerima = mb_substr($penerima, 0, 150);
+        $pt->jumlah = $jumlah;
+        $pt->tanggal = $tanggal;
+        $pt->metode = trim((string)$request->input('metode')) ?: 'Tunai';
+        $pt->catatan = trim((string)$request->input('catatan')) ?: null;
+        $pt->created_by = $request->iduser ?: null;
+        $pt->save();
+        return response()->json(['value' => 200, 'pesan' => 'Success', 'id' => $pt->id]);
+    }
+
+    public function editpembayaran(Request $request){
+        $pt = Pembayarantagging::find($request->id);
+        if (!$pt) {
+            return response()->json(['value' => 404, 'pesan' => 'Pembayaran tidak ditemukan'], 404);
+        }
+        if ($request->filled('jumlah')) {
+            $jumlah = (int)$request->input('jumlah');
+            if ($jumlah <= 0) {
+                return response()->json(['value' => 400, 'pesan' => 'Jumlah pembayaran tidak valid'], 400);
+            }
+            $pt->jumlah = $jumlah;
+        }
+        if ($request->filled('tanggal') && preg_match('/^\d{4}-\d{2}-\d{2}$/', (string)$request->input('tanggal'))) {
+            $pt->tanggal = $request->input('tanggal');
+        }
+        if ($request->filled('penerima')) $pt->penerima = mb_substr(trim((string)$request->input('penerima')), 0, 150);
+        if ($request->filled('metode')) $pt->metode = trim((string)$request->input('metode'));
+        $pt->catatan = $request->filled('catatan') ? trim((string)$request->input('catatan')) : $pt->catatan;
+        $pt->save();
+        return response()->json(['value' => 200, 'pesan' => 'Success']);
+    }
+
+    public function hapuspembayaran(Request $request){
+        $pt = Pembayarantagging::find($request->id);
+        if (!$pt) {
+            return response()->json(['value' => 404, 'pesan' => 'Pembayaran tidak ditemukan'], 404);
+        }
+        $pt->delete();
+        return response()->json(['value' => 200, 'pesan' => 'Success']);
     }
 
     public function getUser()

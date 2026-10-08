@@ -166,6 +166,10 @@ Route::get('ceritalist', [ApiController::class, 'ceritalist']);
 Route::post('tambahcerita', [ApiController::class, 'tambahcerita']);
 Route::post('editcerita', [ApiController::class, 'editcerita']);
 Route::post('hapuscerita', [ApiController::class, 'hapuscerita']);
+Route::get('pembayaranlist', [ApiController::class, 'pembayaranlist']);
+Route::post('tambahpembayaran', [ApiController::class, 'tambahpembayaran']);
+Route::post('editpembayaran', [ApiController::class, 'editpembayaran']);
+Route::post('hapuspembayaran', [ApiController::class, 'hapuspembayaran']);
 
 
 
