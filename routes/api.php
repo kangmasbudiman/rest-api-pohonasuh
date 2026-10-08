@@ -162,6 +162,10 @@ Route::get('partnerlist', [ApiController::class, 'partnerlist']);
 Route::post('tambahpartner', [ApiController::class, 'tambahpartner']);
 Route::post('editpartner', [ApiController::class, 'editpartner']);
 Route::post('hapuspartner', [ApiController::class, 'hapuspartner']);
+Route::get('ceritalist', [ApiController::class, 'ceritalist']);
+Route::post('tambahcerita', [ApiController::class, 'tambahcerita']);
+Route::post('editcerita', [ApiController::class, 'editcerita']);
+Route::post('hapuscerita', [ApiController::class, 'hapuscerita']);
 
 
 

@@ -33,6 +33,7 @@ use App\Models\Fototaging;
 use App\Models\SpeciesCatalog;
 use App\Models\Testimoni;
 use App\Models\Partner;
+use App\Models\Cerita;
 
 
 use Illuminate\Support\Facades\Http;
@@ -5325,6 +5326,67 @@ public function confirmasipembayaran(Request $request){
             return response()->json(['value' => '404', 'pesan' => 'Partner tidak ditemukan'], 404);
         }
         $p->delete();
+        return response()->json(['value' => '200', 'pesan' => 'Success']);
+    }
+
+    // ===== Cerita dampak (Impact Stories) untuk halaman publik web =====
+
+    public function ceritalist(Request $request){
+        $data = Cerita::orderByDesc('created_at')->get();
+        $items = array();
+        foreach ($data as $k) {
+            $b['id'] = $k->id;
+            $b['judul'] = $k->judul;
+            $b['narasumber'] = $k->narasumber;
+            $b['peran'] = $k->peran ?: '';
+            $b['lokasi'] = $k->lokasi ?: '';
+            $b['isi'] = $k->isi;
+            $b['foto'] = $k->foto ? $request->getSchemeAndHttpHost() . '/assets/' . $k->foto : '';
+            $b['created_at'] = $k->created_at->format('Y-m-d H:i:s');
+            array_push($items, $b);
+        }
+        return response()->json($items);
+    }
+
+    public function tambahcerita(Request $request){
+        $judul = trim((string)$request->input('judul'));
+        $isi = trim((string)$request->input('isi'));
+        $narasumber = trim((string)$request->input('narasumber'));
+        if ($judul === '' || $isi === '' || $narasumber === '') {
+            return response()->json(['value' => '400', 'pesan' => 'Judul, narasumber, dan isi cerita wajib diisi'], 400);
+        }
+        $c = new Cerita();
+        $c->judul = $judul;
+        $c->narasumber = $narasumber;
+        $c->peran = trim((string)$request->input('peran')) ?: null;
+        $c->lokasi = trim((string)$request->input('lokasi')) ?: null;
+        $c->isi = $isi;
+        $c->foto = trim((string)$request->input('foto')) ?: null;
+        $c->save();
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $c->id]);
+    }
+
+    public function editcerita(Request $request){
+        $c = Cerita::find($request->id);
+        if (!$c) {
+            return response()->json(['value' => '404', 'pesan' => 'Cerita tidak ditemukan'], 404);
+        }
+        if ($request->filled('judul')) $c->judul = trim((string)$request->input('judul'));
+        if ($request->filled('narasumber')) $c->narasumber = trim((string)$request->input('narasumber'));
+        if ($request->filled('peran')) $c->peran = trim((string)$request->input('peran'));
+        if ($request->filled('lokasi')) $c->lokasi = trim((string)$request->input('lokasi'));
+        if ($request->filled('isi')) $c->isi = trim((string)$request->input('isi'));
+        if ($request->filled('foto')) $c->foto = trim((string)$request->input('foto'));
+        $c->save();
+        return response()->json(['value' => '200', 'pesan' => 'Success']);
+    }
+
+    public function hapuscerita(Request $request){
+        $c = Cerita::find($request->id);
+        if (!$c) {
+            return response()->json(['value' => '404', 'pesan' => 'Cerita tidak ditemukan'], 404);
+        }
+        $c->delete();
         return response()->json(['value' => '200', 'pesan' => 'Success']);
     }
 
