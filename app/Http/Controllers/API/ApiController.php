@@ -2849,6 +2849,11 @@ public function confirmasipembayaran(Request $request){
     $namadesaList=Desa::whereIn('id',$desaAmpu)->pluck('nama');
     $namadesa=$namadesaList->first();
     $namadesa=$namadesa ? $namadesa : "";
+
+    // Param `semua` (panel admin web): lewati pembatasan desa tugas agar
+    // admin program melihat order tagging dari SEMUA desa. Aplikasi mobile
+    // tidak mengirim parameter ini sehingga perilakunya tetap.
+    $semuaDesa=$request->filled('semua');
     
 
     
@@ -2861,14 +2866,18 @@ public function confirmasipembayaran(Request $request){
         'data_adopsi.idpohon','=','pmin.idpohon')
     ->join('data_pohon','data_pohon.id','=','pmin.pmin_id')
       ->whereIn('data_adopsi.proses',[1,2,3])
-      ->whereIn('data_adopsi.desa',$namadesaList)
+      ->when(!$semuaDesa, function($q) use ($namadesaList) {
+          $q->whereIn('data_adopsi.desa',$namadesaList);
+      })
 
       ->orderBy('data_adopsi.tgl_adopt','desc')
       ->orderBy('data_adopsi.id','desc')
     ->get(['data_adopsi.*','data_pohon.localname','data_pohon.foto_pohon','data_pohon.latitude','data_pohon.longitude','data_pohon.diameter','data_pohon.tinggi','data_pohon.keliling']);
     if(count($data)>0){
-      // Peta desa (nama → row) untuk lokasi lengkap di papan taging.
-      $desaMap = Desa::whereIn('nama', $namadesaList)->get()->keyBy('nama');
+      // Peta desa (nama → row) untuk lokasi lengkap di papan taging — saat
+      // `semua`, cakup desa yang benar-benar muncul di hasil (bisa di luar
+      // penugasan petugas).
+      $desaMap = Desa::whereIn('nama', $semuaDesa ? $data->pluck('desa')->unique() : $namadesaList)->get()->keyBy('nama');
       $items = array();
       foreach ($data as $k) {
         $desaRow = $desaMap->get($k->desa);
