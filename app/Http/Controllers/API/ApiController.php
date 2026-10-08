@@ -208,7 +208,11 @@ class ApiController extends Controller
             'pesan' => 'invoice wajib diisi',
         ], 400);
       }
-      $rows = Dataadopsi::join('data_pohon', 'data_adopsi.idpohon', '=', 'data_pohon.idpohon')
+      // idpohon tak unik di data_pohon → dedup MIN(id) agar join 1:1 (anti fan-out)
+      $rows = Dataadopsi::join(
+              DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'),
+              'data_adopsi.idpohon', '=', 'pmin.idpohon')
+          ->join('data_pohon', 'data_pohon.id', '=', 'pmin.pmin_id')
           ->where('data_adopsi.invoice', $invoice)
           ->orderBy('data_adopsi.id')
           ->get(['data_adopsi.id', 'data_adopsi.idpohon', 'data_adopsi.proses',
@@ -1427,10 +1431,13 @@ public function allcertificate(){
     
     public function mytreesgroup(Request $request){
       $iduser=$request->iduser;
-      $data=Dataadopsi::join('data_pohon','data_adopsi.idpohon','=','data_pohon.idpohon')
+      // idpohon tak unik di data_pohon → dedup MIN(id) agar join 1:1 (anti fan-out)
+      $data=Dataadopsi::join(
+          DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'),
+          'data_adopsi.idpohon','=','pmin.idpohon')
+      ->join('data_pohon','data_pohon.id','=','pmin.pmin_id')
      // ->join('desa','data_adopsi.desa','=','desa.nama')
       ->where('data_adopsi.pengasuh',$iduser)
-      ->groupBy(['data_adopsi.*','data_pohon.localname','data_pohon.foto_pohon'])
       ->get(['data_adopsi.*','data_pohon.localname','data_pohon.foto_pohon']);
       if(count($data)>0){
         $items = array();
@@ -2643,7 +2650,11 @@ public function confirmasipembayaran(Request $request){
   }
 
   public function ordercustomer(Request $request){
-     $data = Dataadopsi::join('data_pohon', 'data_adopsi.idpohon', '=', 'data_pohon.idpohon')
+     // idpohon tak unik di data_pohon → dedup MIN(id) agar join 1:1 (anti fan-out)
+     $data = Dataadopsi::join(
+            DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'),
+            'data_adopsi.idpohon', '=', 'pmin.idpohon')
+        ->join('data_pohon', 'data_pohon.id', '=', 'pmin.pmin_id')
         ->whereIn('data_adopsi.proses', [1, 2, 3])
         ->selectRaw('
             data_adopsi.id,
@@ -2775,8 +2786,11 @@ public function confirmasipembayaran(Request $request){
     
     
     
-    $data=Dataadopsi::join('data_pohon','data_adopsi.idpohon','=','data_pohon.idpohon')
-        
+    // idpohon tak unik di data_pohon → dedup MIN(id) agar join 1:1 (anti fan-out)
+    $data=Dataadopsi::join(
+        DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'),
+        'data_adopsi.idpohon','=','pmin.idpohon')
+    ->join('data_pohon','data_pohon.id','=','pmin.pmin_id')
       ->whereIn('data_adopsi.proses',[1,2,3])
       ->whereIn('data_adopsi.desa',$namadesaList)
 
@@ -2943,7 +2957,11 @@ public function confirmasipembayaran(Request $request){
 
     public function mytrees(Request $request){
       $iduser=$request->iduser;
-      $data=Dataadopsi::join('data_pohon','data_adopsi.idpohon','=','data_pohon.idpohon')
+      // idpohon tak unik di data_pohon → dedup MIN(id) agar join 1:1 (anti fan-out)
+      $data=Dataadopsi::join(
+          DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'),
+          'data_adopsi.idpohon','=','pmin.idpohon')
+      ->join('data_pohon','data_pohon.id','=','pmin.pmin_id')
      // ->join('desa','data_adopsi.desa','=','desa.nama')
       ->where('data_adopsi.pengasuh',$iduser)
       ->orderBy('data_adopsi.tgl_adopt','desc')
