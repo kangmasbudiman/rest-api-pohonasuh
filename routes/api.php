@@ -149,6 +149,7 @@ Route::post('editslider', [ApiController::class, 'editslider']);
 Route::post('hapusslider', [ApiController::class, 'hapusslider']);
 // Fitur adopsi lindungihutan.com (2026-09-26)
 Route::get('statistikdampak', [ApiController::class, 'statistikdampak']);
+Route::get('adopsiterkini', [ApiController::class, 'adopsiterkini']);
 Route::get('specieslist', [ApiController::class, 'specieslist']);
 Route::get('speciesdetail/{id}', [ApiController::class, 'speciesdetail']);
 Route::post('tambahspecies', [ApiController::class, 'tambahspecies']);

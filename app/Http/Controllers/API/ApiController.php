@@ -5112,6 +5112,42 @@ public function confirmasipembayaran(Request $request){
         ]);
     }
 
+    // 20 pengadopsi terkini (order terverifikasi) utk slider beranda.
+    public function adopsiterkini(Request $request){
+        $this->kedaluwarsaPembayaran();
+        $rows = DB::table('data_adopsi as a')
+            ->join('confirmation as c', 'c.invoice', '=', 'a.invoice')
+            ->join('member as m', 'm.id', '=', 'a.pengasuh')
+            ->leftJoin(DB::raw('(SELECT idpohon, MIN(id) AS pid FROM data_pohon GROUP BY idpohon) pmin'), 'pmin.idpohon', '=', 'a.idpohon')
+            ->leftJoin('data_pohon as p', 'p.id', '=', 'pmin.pid')
+            ->where('c.confirmation', 'yes')
+            ->orderByDesc('a.id')
+            ->limit(20)
+            ->get([
+                'm.name as pengadopsi',
+                'a.idpohon',
+                'p.localname',
+                'p.species',
+                'a.desa',
+                'a.tgl_adopt',
+                'p.foto_pohon',
+            ]);
+        $items = [];
+        foreach ($rows as $r) {
+            $items[] = [
+                'pengadopsi' => $r->pengadopsi,
+                'idpohon' => $r->idpohon,
+                'localname' => $r->localname,
+                'species' => $r->species,
+                'desa' => $r->desa,
+                'tgl_adopt' => $r->tgl_adopt,
+                // pass-through URL penuh dari DB (pola pohonhighlight)
+                'foto' => $r->foto_pohon ?: null,
+            ];
+        }
+        return response()->json($items);
+    }
+
     // Daftar spesies katalog (A-Z) + jumlah pohon terdata per spesies.
     // species di data_pohon berantakan → dicocokkan via species_key
     // (variasi nama dipisah koma) terhadap TRIM(species) dalam SATU
