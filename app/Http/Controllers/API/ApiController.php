@@ -4414,10 +4414,19 @@ public function confirmasipembayaran(Request $request){
     return round(0.11 * 0.6 * pow($d, 2.53) / 1000, 1);
   }
 
+  // Total dana adopsi terkumpul: order terverifikasi + riwayat lama
+  // (data_adopsi 2015-2023 hasil import tak punya baris confirmation).
+  private function totalDanaTerkumpul(){
+    return (int) DB::table('data_adopsi as a')
+      ->leftJoin('confirmation as c', 'c.invoice', '=', 'a.invoice')
+      ->where(function ($q) { $q->whereNull('c.id')->orWhere('c.confirmation', 'yes'); })
+      ->sum('a.price');
+  }
+
   // Total donasi terverifikasi untuk halaman transparansi keuangan web.
   public function totaldonasi(){
     return response()->json([
-      'total' => (int) Confirmasi::where('confirmation', 'yes')->sum('price'),
+      'total' => $this->totalDanaTerkumpul(),
     ]);
   }
 
@@ -5109,6 +5118,7 @@ public function confirmasipembayaran(Request $request){
             'tersedia' => (int)$p->av,
             'desa' => (int)$p->d,
             'donatur' => (int)Member::count(),
+            'donasi' => $this->totalDanaTerkumpul(),
         ]);
     }
 
