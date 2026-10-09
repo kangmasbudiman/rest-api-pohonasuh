@@ -89,6 +89,7 @@ Route::post('sendNotif', [ApiController::class, 'sendNotif']);
 Route::post('sendNotifkepengurus', [ApiController::class, 'sendNotifkepengurus']);
 Route::get('ordercustomer', [ApiController::class, 'ordercustomer']);
 Route::post('updatestatusproses', [ApiController::class, 'updatestatusproses']);
+Route::post('batalproses', [ApiController::class, 'batalproses']);
 Route::post('updatestatuscomplate', [ApiController::class, 'updatestatuscomplate']);
 Route::post('ceklatlangpohon', [ApiController::class, 'ceklatlangpohon']);
 Route::post('uploadimage', [ApiController::class, 'uploadimage']);

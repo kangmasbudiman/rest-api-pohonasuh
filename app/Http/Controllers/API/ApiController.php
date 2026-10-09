@@ -2714,8 +2714,35 @@ public function confirmasipembayaran(Request $request){
     return response()->json([
       'value' =>"200",
       'message'=>"Update Status"
-    ]);  
+    ]);
 
+  }
+
+  // Batalkan PROSES tagging satu pohon (kebalikan updatestatusproses):
+  // proses kembali ke 1 (Baru) + foto tagging siklus adopsi ini dihapus.
+  // Order/adopsi TETAP ADA — khusus petugas yang salah memulai proses;
+  // donatur TIDAK dinotifikasi (alur internal). Proses 3 (selesai) tak boleh.
+  public function batalproses(Request $request){
+    $data=Dataadopsi::find($request->id);
+    if(!$data){
+      return response()->json([
+        'value' =>404,
+        'pesan' =>"Data adopsi tidak ditemukan"
+      ]);
+    }
+    if((int)$data->proses === 3){
+      return response()->json([
+        'value' =>409,
+        'pesan' =>"Order sudah selesai ditandai dan tidak bisa dibatalkan prosesnya"
+      ]);
+    }
+    Fototaging::where('idadopsi',$data->id)->delete();
+    $data->proses=1;
+    $data->update();
+    return response()->json([
+      'value' =>"200",
+      'pesan' =>"Proses tagging dibatalkan, order kembali ke daftar Baru"
+    ]);
   }
 
   public function ordercustomer(Request $request){
