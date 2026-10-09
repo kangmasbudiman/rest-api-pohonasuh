@@ -5158,7 +5158,17 @@ public function confirmasipembayaran(Request $request){
             return $q;
         };
         $totalTerkait = $base()->count();
-        $pohonTerkait = $base()->where('adopted', 'available')->orderBy('idpohon')->limit(12)->get();
+        // Kartu memperlihatkan status asli pohon (tersedia/dipesan/diadopsi):
+        // hingga 12 pohon tersedia + hingga 4 non-tersedia agar status lain
+        // tetap terwakili walau spesiesnya populer.
+        $pohonTerkait = $base()->where('adopted', 'available')->orderBy('idpohon')->limit(12)->get()
+            ->concat(
+                $base()->where('adopted', '<>', 'available')
+                    ->orderByRaw("CASE adopted WHEN 'reserved' THEN 0 ELSE 1 END")
+                    ->orderBy('idpohon')
+                    ->limit(4)
+                    ->get(),
+            );
         $desaRows = $base()->selectRaw("desa, COUNT(*) AS j")->groupBy('desa')->get();
 
         $pohon = [];
@@ -5170,6 +5180,7 @@ public function confirmasipembayaran(Request $request){
                 'desa' => $p->desa,
                 'harga' => $p->harga,
                 'foto_pohon' => $p->foto_pohon,
+                'adopted' => $p->adopted,
             ];
         }
         $desa = [];
