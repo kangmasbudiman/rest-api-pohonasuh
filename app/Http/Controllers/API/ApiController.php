@@ -5121,11 +5121,17 @@ public function confirmasipembayaran(Request $request){
         $perKey = Pohon::selectRaw("TRIM(species) AS s, COUNT(*) AS j")
             ->whereNotNull('species')->where('species', '!=', '')
             ->groupBy('s')->get()->keyBy('s');
+        $perKeyAvail = Pohon::selectRaw("TRIM(species) AS s, COUNT(*) AS j")
+            ->whereNotNull('species')->where('species', '!=', '')
+            ->where('adopted', 'available')
+            ->groupBy('s')->get()->keyBy('s');
         $items = [];
         foreach ($rows as $r) {
             $jml = 0;
+            $tersedia = 0;
             foreach (array_map('trim', array_filter(explode(',', (string)$r->species_key))) as $key) {
                 $jml += (int)($perKey[$key]->j ?? 0);
+                $tersedia += (int)($perKeyAvail[$key]->j ?? 0);
             }
             $items[] = [
                 'id' => $r->id,
@@ -5136,6 +5142,7 @@ public function confirmasipembayaran(Request $request){
                 'serapan_karbon' => $r->serapan_karbon !== null ? (float)$r->serapan_karbon : null,
                 'foto' => $r->foto && str_starts_with($r->foto, 'http') ? $r->foto : ($r->foto ? $request->getSchemeAndHttpHost() . '/assets/' . $r->foto : ''),
                 'jml_pohon' => $jml,
+                'jml_tersedia' => $tersedia,
             ];
         }
         return response()->json($items);
@@ -5158,6 +5165,7 @@ public function confirmasipembayaran(Request $request){
             return $q;
         };
         $totalTerkait = $base()->count();
+        $tersediaTerkait = $base()->where('adopted', 'available')->count();
         // Kartu memperlihatkan status asli pohon (tersedia/dipesan/diadopsi):
         // hingga 12 pohon tersedia + hingga 4 non-tersedia agar status lain
         // tetap terwakili walau spesiesnya populer.
@@ -5198,6 +5206,7 @@ public function confirmasipembayaran(Request $request){
             'foto' => $r->foto && str_starts_with($r->foto, 'http') ? $r->foto : ($r->foto ? $request->getSchemeAndHttpHost() . '/assets/' . $r->foto : ''),
             'species_key' => (string)$r->species_key,
             'jml_pohon' => $totalTerkait,
+            'jml_tersedia' => $tersediaTerkait,
             'pohon' => $pohon,
             'desa' => $desa,
         ]);
