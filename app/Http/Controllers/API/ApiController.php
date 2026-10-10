@@ -3512,6 +3512,8 @@ public function confirmasipembayaran(Request $request){
         $b['foto'] = ($k->foto !== null && $k->foto !== '')
           ? $k->foto
           : ($fotos[$k->nama] ?? null);
+        // Kolom asli desa.foto — membedakan foto kustom vs fallback foto pohon.
+        $b['foto_raw'] = $k->foto;
         $b['hutan_desa']=$k->hutan_desa;
 
         $c = $counts->get($k->nama);
@@ -3556,6 +3558,8 @@ public function confirmasipembayaran(Request $request){
     if (Desa::where('nama',$nama)->exists()) {
       return response()->json(['value'=>400,'pesan'=>'Nama desa sudah dipakai']);
     }
+    [$fotoUrl, $fotoErr] = $this->prosesFotoLokasi($request);
+    if ($fotoErr) return $fotoErr;
     $d = new Desa;
     $d->nama = $nama;
     $d->label = $request->input('label');
@@ -3568,7 +3572,7 @@ public function confirmasipembayaran(Request $request){
     $d->latitude = $request->input('latitude');
     $d->longitude = $request->input('longitude');
     $d->profil = $request->input('profil');
-    $d->foto = $request->input('foto');
+    $d->foto = $fotoUrl ?? $request->input('foto');
     $d->aktif = (int)$request->input('aktif', 1) === 1 ? 1 : 0;
     $d->save();
     return response()->json(['value'=>200,'id'=>$d->id,'pesan'=>'Lokasi ditambahkan']);
@@ -3585,8 +3589,11 @@ public function confirmasipembayaran(Request $request){
     if ($ubahNama && Desa::where('nama',$namaBaru)->where('id','!=',$id)->exists()) {
       return response()->json(['value'=>400,'pesan'=>'Nama desa sudah dipakai']);
     }
+    // Unggahan menimpa kolom foto; tanpa unggahan perilaku lama (input foto).
+    [$fotoUrl, $fotoErr] = $this->prosesFotoLokasi($request);
+    if ($fotoErr) return $fotoErr;
 
-    DB::transaction(function () use ($d, $request, $ubahNama, $namaBaru) {
+    DB::transaction(function () use ($d, $request, $ubahNama, $namaBaru, $fotoUrl) {
       $namaLama = $d->nama;
       if ($request->has('nama') && $namaBaru !== '') $d->nama = $namaBaru;
       if ($request->has('label')) $d->label = $request->input('label');
@@ -3599,7 +3606,8 @@ public function confirmasipembayaran(Request $request){
       if ($request->has('latitude')) $d->latitude = $request->input('latitude');
       if ($request->has('longitude')) $d->longitude = $request->input('longitude');
       if ($request->has('profil')) $d->profil = $request->input('profil');
-      if ($request->has('foto')) $d->foto = $request->input('foto');
+      if ($fotoUrl !== null) $d->foto = $fotoUrl;
+      elseif ($request->has('foto')) $d->foto = $request->input('foto');
       if ($request->has('aktif')) $d->aktif = (int)$request->input('aktif') === 1 ? 1 : 0;
       $d->save();
 
@@ -4793,10 +4801,10 @@ public function confirmasipembayaran(Request $request){
 
   // ===== Edit/hapus pohon untuk admin web =====
 
-  // Upload foto utama pohon (param file "foto" di editpohon/tambahpohon):
-  // simpan ke public/upload/pohon, balas [url|null, errorResponse|null].
-  // URL dibangun dari origin request sehingga selalu menunjuk server API.
-  private function prosesFotoPohon(Request $request){
+  // Upload foto (param file "foto"): simpan ke public/upload/<folder>,
+  // balas [url|null, errorResponse|null]. URL dibangun dari origin request
+  // sehingga selalu menunjuk server API. Dipakai bersama pohon & lokasi.
+  private function prosesUploadFoto(Request $request, $folder, $paramKey){
     if (!$request->hasFile('foto')) return [null, null];
     $file = $request->file('foto');
     $ext = strtolower($file->getClientOriginalExtension());
@@ -4806,15 +4814,23 @@ public function confirmasipembayaran(Request $request){
     if ($file->getSize() > 2 * 1024 * 1024) {
       return [null, response()->json(['value' => '400', 'pesan' => 'Ukuran foto maksimal 2MB'], 400)];
     }
-    $kode = preg_replace('/[^A-Za-z0-9_-]/', '', (string)$request->input('idpohon'));
-    $name_file = 'pohon_'.$kode.'_'.time().'_'.strtoupper(substr(md5(uniqid(rand(), true)), 0, 4)).'.'.$ext;
-    $destinationPath = base_path('public/upload/pohon');
+    $kode = preg_replace('/[^A-Za-z0-9_-]/', '', (string)$request->input($paramKey));
+    $name_file = $folder.'_'.$kode.'_'.time().'_'.strtoupper(substr(md5(uniqid(rand(), true)), 0, 4)).'.'.$ext;
+    $destinationPath = base_path('public/upload/'.$folder);
     if (!file_exists($destinationPath)) {
       mkdir($destinationPath, 0775, true);
     }
     $file->move($destinationPath, $name_file);
-    $url = $request->getSchemeAndHttpHost().str_replace('/index.php', '', $request->getBaseUrl()).'/upload/pohon/'.$name_file;
+    $url = $request->getSchemeAndHttpHost().str_replace('/index.php', '', $request->getBaseUrl()).'/upload/'.$folder.'/'.$name_file;
     return [$url, null];
+  }
+
+  private function prosesFotoPohon(Request $request){
+    return $this->prosesUploadFoto($request, 'pohon', 'idpohon');
+  }
+
+  private function prosesFotoLokasi(Request $request){
+    return $this->prosesUploadFoto($request, 'lokasi', 'nama');
   }
 
   public function editpohon(Request $request){
