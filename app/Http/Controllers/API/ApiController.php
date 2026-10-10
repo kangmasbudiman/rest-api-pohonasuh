@@ -3493,6 +3493,15 @@ public function confirmasipembayaran(Request $request){
           ->whereRaw("IFNULL(foto_pohon,'') <> ''")->groupBy('desa');
       })->pluck('foto_pohon', 'desa');
 
+      // Donasi per desa (definisi sama totalDanaTerkumpul: data_adopsi legacy
+      // tanpa baris confirmation + order terverifikasi) — total & tahun berjalan.
+      $donasi = DB::table('data_adopsi as a')
+        ->leftJoin('confirmation as c', 'c.invoice', '=', 'a.invoice')
+        ->where(function ($q) { $q->whereNull('c.id')->orWhere('c.confirmation', 'yes'); })
+        ->selectRaw("a.desa, SUM(a.price) AS j_total, SUM(IF(YEAR(a.tgl_adopt) = YEAR(CURDATE()), a.price, 0)) AS j_tahun")
+        ->groupBy('a.desa')
+        ->get()->keyBy('desa');
+
       $items = array();
       foreach ($data as $k) {
         $b['id'] = $k->id;
@@ -3511,6 +3520,10 @@ public function confirmasipembayaran(Request $request){
         $b['available']=$c ? (int)$c->j_available : 0;
 
         $b['total']=$c ? (int)$c->j_total : 0;
+
+        $dn = $donasi->get($k->nama);
+        $b['donasi'] = $dn ? (int)$dn->j_total : 0;
+        $b['donasi_tahun'] = $dn ? (int)$dn->j_tahun : 0;
 
         $b['provinsi']=$k->provinsi;
         $b['kecamatan']=$k->kecamatan;
