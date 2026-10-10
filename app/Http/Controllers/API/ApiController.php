@@ -3486,6 +3486,13 @@ public function confirmasipembayaran(Request $request){
       $adminIds = $data->pluck('admin_desa')->unique()->filter();
       $admins = Member::whereIn('id', $adminIds)->pluck('name', 'id');
 
+      // Foto per desa: kolom desa.foto bila diisi, selain itu foto pohon
+      // pertama desa itu (pohon masing-masing desa 100% ber-foto_pohon).
+      $fotos = Pohon::whereIn('id', function ($q) {
+        $q->selectRaw('MIN(id)')->from((new Pohon)->getTable())
+          ->whereRaw("IFNULL(foto_pohon,'') <> ''")->groupBy('desa');
+      })->pluck('foto_pohon', 'desa');
+
       $items = array();
       foreach ($data as $k) {
         $b['id'] = $k->id;
@@ -3493,7 +3500,9 @@ public function confirmasipembayaran(Request $request){
         $b['profil']=$k->profil;
         $b['latitude']=$k->latitude;
         $b['longitude']=$k->longitude;
-        $b['foto']=$k->foto;
+        $b['foto'] = ($k->foto !== null && $k->foto !== '')
+          ? $k->foto
+          : ($fotos[$k->nama] ?? null);
         $b['hutan_desa']=$k->hutan_desa;
 
         $c = $counts->get($k->nama);
