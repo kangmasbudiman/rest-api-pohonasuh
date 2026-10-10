@@ -3633,9 +3633,19 @@ public function confirmasipembayaran(Request $request){
   public function getprofil(Request $request){
         $id=$request->id;
       //  $data=Blog::join('member','blog.idmember','=','member.id')
+        // Select eksplisit + alias: kolom id/foto bentrok antara member dan
+        // desa/desa_petugas — select * membuat mysqlnd menimpa nilai member
+        // dengan kolom tabel terakhir (id jadi desa.id, foto jadi desa.foto).
         $data=Member::join('desa_petugas','desa_petugas.idpetugas','=','member.id')
             ->join('desa','desa.id','=','desa_petugas.iddesa')
-            ->where("member.id",$id)->first();
+            ->where("member.id",$id)
+            ->select(
+                'member.id as id','member.name as name','member.emaile as emaile',
+                'member.hp as hp','member.admin as admin','member.foto as foto',
+                'member.job as job','member.address as address',
+                'desa.nama as nama_desa'
+            )
+            ->first();
         if($data){
           return response()->json([
             'id' =>$data->id ,
@@ -3643,7 +3653,7 @@ public function confirmasipembayaran(Request $request){
             'emaile' => $data->emaile,
             'hp' => $data->hp,
             'admin' => $data->admin,
-            'desa' => $data->nama,
+            'desa' => $data->nama_desa,
             'foto' => $data->foto ?: '',
             'job' => $data->job,
             'address' => $data->address,
