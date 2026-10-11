@@ -5560,7 +5560,11 @@ public function confirmasipembayaran(Request $request){
         $b['jenis'] = $k->jenis;
         $b['desa'] = $k->desa ?: '';
         $b['tanggal'] = $k->tanggal instanceof \Carbon\Carbon ? $k->tanggal->format('Y-m-d') : (string)$k->tanggal;
+        $b['tanggal_selesai'] = $k->tanggal_selesai instanceof \Carbon\Carbon ? $k->tanggal_selesai->format('Y-m-d') : (string)($k->tanggal_selesai ?? '');
         $b['isi'] = $k->isi;
+        $b['dana'] = $k->dana !== null ? (float)$k->dana : null;
+        $b['hasil'] = (string)($k->hasil ?? '');
+        $b['status'] = $k->status ?: 'terkirim';
         $b['created_at'] = $k->created_at ? $k->created_at->format('Y-m-d H:i:s') : '';
         $b['foto'] = LaporanFoto::where('idlaporan', $k->id)
             ->orderBy('id')
@@ -5579,6 +5583,9 @@ public function confirmasipembayaran(Request $request){
         if ($request->filled('idpetugas')) {
             $q->where('idpetugas', $request->idpetugas);
         }
+        if ($request->filled('status')) {
+            $q->where('status', $request->status);
+        }
         $data = $q->orderByDesc('tanggal')->orderByDesc('id')->get();
         return response()->json($data->map(fn ($k) => $this->laporanKeJson($request, $k))->values());
     }
@@ -5588,8 +5595,15 @@ public function confirmasipembayaran(Request $request){
         $isi = trim((string)$request->input('isi'));
         $tanggal = trim((string)$request->input('tanggal'));
         $idpetugas = (int)$request->input('idpetugas');
-        if ($judul === '' || $isi === '' || $tanggal === '' || !$idpetugas) {
-            return response()->json(['value' => '400', 'pesan' => 'Judul, tanggal, isi, dan petugas wajib diisi'], 400);
+        $status = trim((string)$request->input('status')) ?: 'terkirim';
+        if (!in_array($status, ['draft', 'terkirim'])) {
+            return response()->json(['value' => '400', 'pesan' => 'Status laporan tidak valid'], 400);
+        }
+        if ($status === 'terkirim' && ($judul === '' || $isi === '' || $tanggal === '' || !$idpetugas)) {
+            return response()->json(['value' => '400', 'pesan' => 'Judul, tanggal, uraian, dan petugas wajib diisi untuk laporan yang dikirim'], 400);
+        }
+        if (!$idpetugas) {
+            return response()->json(['value' => '400', 'pesan' => 'Petugas wajib diisi'], 400);
         }
         if (!Member::where('id', $idpetugas)->exists()) {
             return response()->json(['value' => '404', 'pesan' => 'Petugas tidak ditemukan'], 404);
@@ -5598,15 +5612,24 @@ public function confirmasipembayaran(Request $request){
         if (!in_array($jenis, ['tagging', 'pemantauan', 'papan', 'lainnya'])) {
             return response()->json(['value' => '400', 'pesan' => 'Jenis kegiatan tidak valid'], 400);
         }
+        $dana = $request->filled('dana') && $request->dana !== '' ? (float)str_replace(',', '.', preg_replace('/[^0-9,.]/', '', (string)$request->dana)) : null;
+        if ($dana !== null && $dana < 0) {
+            return response()->json(['value' => '400', 'pesan' => 'Dana yang digunakan tidak valid'], 400);
+        }
+        $tanggalSelesai = trim((string)$request->input('tanggal_selesai')) ?: null;
         $l = new LaporanKegiatan();
         $l->idpetugas = $idpetugas;
-        $l->judul = $judul;
+        $l->judul = $judul !== '' ? $judul : 'Draft Laporan';
         $l->jenis = $jenis;
         $l->desa = trim((string)$request->input('desa')) ?: null;
-        $l->tanggal = $tanggal;
+        $l->tanggal = $tanggal !== '' ? $tanggal : now()->toDateString();
+        $l->tanggal_selesai = $tanggalSelesai;
         $l->isi = $isi;
+        $l->dana = $dana;
+        $l->hasil = trim((string)$request->input('hasil'));
+        $l->status = $status;
         $l->save();
-        return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $l->id]);
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $l->id, 'status' => $status]);
     }
 
     public function editlaporan(Request $request){
@@ -5617,6 +5640,30 @@ public function confirmasipembayaran(Request $request){
         if ($request->filled('judul')) $l->judul = trim((string)$request->input('judul'));
         if ($request->filled('isi')) $l->isi = trim((string)$request->input('isi'));
         if ($request->filled('tanggal')) $l->tanggal = trim((string)$request->input('tanggal'));
+        if ($request->has('tanggal_selesai')) $l->tanggal_selesai = trim((string)$request->input('tanggal_selesai')) ?: null;
+        if ($request->has('dana')) {
+            $dana = $request->filled('dana') && $request->dana !== '' ? (float)str_replace(',', '.', preg_replace('/[^0-9,.]/', '', (string)$request->dana)) : null;
+            if ($dana !== null && $dana < 0) {
+                return response()->json(['value' => '400', 'pesan' => 'Dana yang digunakan tidak valid'], 400);
+            }
+            $l->dana = $dana;
+        }
+        if ($request->has('hasil')) $l->hasil = trim((string)$request->input('hasil'));
+        if ($request->filled('status')) {
+            $status = trim((string)$request->input('status'));
+            if (!in_array($status, ['draft', 'terkirim'])) {
+                return response()->json(['value' => '400', 'pesan' => 'Status laporan tidak valid'], 400);
+            }
+            if ($status === 'terkirim') {
+                $judul = $request->filled('judul') ? trim((string)$request->input('judul')) : $l->judul;
+                $isi = $request->filled('isi') ? trim((string)$request->input('isi')) : $l->isi;
+                $tanggal = $request->filled('tanggal') ? trim((string)$request->input('tanggal')) : (string)$l->tanggal;
+                if ($judul === '' || $isi === '' || $tanggal === '') {
+                    return response()->json(['value' => '400', 'pesan' => 'Nama kegiatan, tanggal, dan uraian wajib diisi sebelum dikirim'], 400);
+                }
+            }
+            $l->status = $status;
+        }
         if ($request->filled('jenis')) {
             $jenis = trim((string)$request->input('jenis'));
             if (!in_array($jenis, ['tagging', 'pemantauan', 'papan', 'lainnya'])) {
@@ -5626,7 +5673,7 @@ public function confirmasipembayaran(Request $request){
         }
         if ($request->has('desa')) $l->desa = trim((string)$request->input('desa')) ?: null;
         $l->save();
-        return response()->json(['value' => '200', 'pesan' => 'Success']);
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'status' => $l->status]);
     }
 
     // Hapus file fisik foto laporan di public/upload/laporan (hanya milik

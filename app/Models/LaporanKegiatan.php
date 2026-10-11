@@ -12,6 +12,6 @@ class LaporanKegiatan extends Model
     protected $guarded = ['id'];
 
     protected $table = 'laporan_kegiatan';
-    protected $fillable = ['idpetugas', 'judul', 'jenis', 'desa', 'tanggal', 'isi'];
+    protected $fillable = ['idpetugas', 'judul', 'jenis', 'desa', 'tanggal', 'tanggal_selesai', 'isi', 'dana', 'hasil', 'status'];
     protected $primaryKey = 'id';
 }
