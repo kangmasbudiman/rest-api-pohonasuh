@@ -5596,10 +5596,10 @@ public function confirmasipembayaran(Request $request){
         $tanggal = trim((string)$request->input('tanggal'));
         $idpetugas = (int)$request->input('idpetugas');
         $status = trim((string)$request->input('status')) ?: 'terkirim';
-        if (!in_array($status, ['draft', 'terkirim'])) {
+        if (!in_array($status, ['draft', 'terkirim', 'disetujui'])) {
             return response()->json(['value' => '400', 'pesan' => 'Status laporan tidak valid'], 400);
         }
-        if ($status === 'terkirim' && ($judul === '' || $isi === '' || $tanggal === '' || !$idpetugas)) {
+        if ($status !== 'draft' && ($judul === '' || $isi === '' || $tanggal === '' || !$idpetugas)) {
             return response()->json(['value' => '400', 'pesan' => 'Judul, tanggal, uraian, dan petugas wajib diisi untuk laporan yang dikirim'], 400);
         }
         if (!$idpetugas) {
@@ -5651,10 +5651,10 @@ public function confirmasipembayaran(Request $request){
         if ($request->has('hasil')) $l->hasil = trim((string)$request->input('hasil'));
         if ($request->filled('status')) {
             $status = trim((string)$request->input('status'));
-            if (!in_array($status, ['draft', 'terkirim'])) {
+            if (!in_array($status, ['draft', 'terkirim', 'disetujui'])) {
                 return response()->json(['value' => '400', 'pesan' => 'Status laporan tidak valid'], 400);
             }
-            if ($status === 'terkirim') {
+            if ($status !== 'draft') {
                 $judul = $request->filled('judul') ? trim((string)$request->input('judul')) : $l->judul;
                 $isi = $request->filled('isi') ? trim((string)$request->input('isi')) : $l->isi;
                 $tanggal = $request->filled('tanggal') ? trim((string)$request->input('tanggal')) : (string)$l->tanggal;
@@ -5672,6 +5672,21 @@ public function confirmasipembayaran(Request $request){
             $l->jenis = $jenis;
         }
         if ($request->has('desa')) $l->desa = trim((string)$request->input('desa')) ?: null;
+        $l->save();
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'status' => $l->status]);
+    }
+
+    // Setujui laporan terkirim (admin) — validasi kelengkapan lalu set status.
+    public function approvelaporan(Request $request){
+        $l = LaporanKegiatan::find($request->id);
+        if (!$l) {
+            return response()->json(['value' => '404', 'pesan' => 'Laporan tidak ditemukan'], 404);
+        }
+        $tanggal = $l->tanggal instanceof \Carbon\Carbon ? $l->tanggal->toDateString() : (string)$l->tanggal;
+        if (trim((string)$l->judul) === '' || trim((string)$l->isi) === '' || $tanggal === '') {
+            return response()->json(['value' => '400', 'pesan' => 'Laporan belum lengkap — nama kegiatan, tanggal, dan uraian wajib diisi'], 400);
+        }
+        $l->status = 'disetujui';
         $l->save();
         return response()->json(['value' => '200', 'pesan' => 'Success', 'status' => $l->status]);
     }

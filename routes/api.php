@@ -171,6 +171,7 @@ Route::post('hapuscerita', [ApiController::class, 'hapuscerita']);
 Route::get('laporanlist', [ApiController::class, 'laporanlist']);
 Route::post('tambahlaporan', [ApiController::class, 'tambahlaporan']);
 Route::post('editlaporan', [ApiController::class, 'editlaporan']);
+Route::post('approvelaporan', [ApiController::class, 'approvelaporan']);
 Route::post('hapuslaporan', [ApiController::class, 'hapuslaporan']);
 Route::post('uploadlaporanfoto', [ApiController::class, 'uploadlaporanfoto']);
 Route::post('hapuslaporanfoto', [ApiController::class, 'hapuslaporanfoto']);
