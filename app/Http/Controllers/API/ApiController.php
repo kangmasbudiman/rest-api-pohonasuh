@@ -34,6 +34,8 @@ use App\Models\SpeciesCatalog;
 use App\Models\Testimoni;
 use App\Models\Partner;
 use App\Models\Cerita;
+use App\Models\LaporanKegiatan;
+use App\Models\LaporanFoto;
 use App\Models\Pembayarantagging;
 
 
@@ -5541,6 +5543,138 @@ public function confirmasipembayaran(Request $request){
             return response()->json(['value' => '404', 'pesan' => 'Cerita tidak ditemukan'], 404);
         }
         $c->delete();
+        return response()->json(['value' => '200', 'pesan' => 'Success']);
+    }
+
+    // ===== Laporan kegiatan petugas tagging (admin panel web) =====
+    // Petugas membuat laporan kegiatan lapangan (tagging/pemantauan/papan/
+    // lainnya) beserta galeri foto bukti. Web membatasi: petugas hanya
+    // laporan miliknya (param idpetugas), admin melihat semua.
+
+    private function laporanKeJson($request, $k){
+        $petugas = Member::find($k->idpetugas);
+        $b['id'] = $k->id;
+        $b['idpetugas'] = $k->idpetugas;
+        $b['petugas'] = $petugas ? $petugas->name : '';
+        $b['judul'] = $k->judul;
+        $b['jenis'] = $k->jenis;
+        $b['desa'] = $k->desa ?: '';
+        $b['tanggal'] = $k->tanggal instanceof \Carbon\Carbon ? $k->tanggal->format('Y-m-d') : (string)$k->tanggal;
+        $b['isi'] = $k->isi;
+        $b['created_at'] = $k->created_at ? $k->created_at->format('Y-m-d H:i:s') : '';
+        $b['foto'] = LaporanFoto::where('idlaporan', $k->id)
+            ->orderBy('id')
+            ->get()
+            ->map(function ($f) { return ['id' => $f->id, 'url' => $f->url]; })
+            ->values()
+            ->all();
+        return $b;
+    }
+
+    public function laporanlist(Request $request){
+        $q = LaporanKegiatan::query();
+        if ($request->filled('id')) {
+            $q->where('id', $request->id);
+        }
+        if ($request->filled('idpetugas')) {
+            $q->where('idpetugas', $request->idpetugas);
+        }
+        $data = $q->orderByDesc('tanggal')->orderByDesc('id')->get();
+        return response()->json($data->map(fn ($k) => $this->laporanKeJson($request, $k))->values());
+    }
+
+    public function tambahlaporan(Request $request){
+        $judul = trim((string)$request->input('judul'));
+        $isi = trim((string)$request->input('isi'));
+        $tanggal = trim((string)$request->input('tanggal'));
+        $idpetugas = (int)$request->input('idpetugas');
+        if ($judul === '' || $isi === '' || $tanggal === '' || !$idpetugas) {
+            return response()->json(['value' => '400', 'pesan' => 'Judul, tanggal, isi, dan petugas wajib diisi'], 400);
+        }
+        if (!Member::where('id', $idpetugas)->exists()) {
+            return response()->json(['value' => '404', 'pesan' => 'Petugas tidak ditemukan'], 404);
+        }
+        $jenis = trim((string)$request->input('jenis')) ?: 'lainnya';
+        if (!in_array($jenis, ['tagging', 'pemantauan', 'papan', 'lainnya'])) {
+            return response()->json(['value' => '400', 'pesan' => 'Jenis kegiatan tidak valid'], 400);
+        }
+        $l = new LaporanKegiatan();
+        $l->idpetugas = $idpetugas;
+        $l->judul = $judul;
+        $l->jenis = $jenis;
+        $l->desa = trim((string)$request->input('desa')) ?: null;
+        $l->tanggal = $tanggal;
+        $l->isi = $isi;
+        $l->save();
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $l->id]);
+    }
+
+    public function editlaporan(Request $request){
+        $l = LaporanKegiatan::find($request->id);
+        if (!$l) {
+            return response()->json(['value' => '404', 'pesan' => 'Laporan tidak ditemukan'], 404);
+        }
+        if ($request->filled('judul')) $l->judul = trim((string)$request->input('judul'));
+        if ($request->filled('isi')) $l->isi = trim((string)$request->input('isi'));
+        if ($request->filled('tanggal')) $l->tanggal = trim((string)$request->input('tanggal'));
+        if ($request->filled('jenis')) {
+            $jenis = trim((string)$request->input('jenis'));
+            if (!in_array($jenis, ['tagging', 'pemantauan', 'papan', 'lainnya'])) {
+                return response()->json(['value' => '400', 'pesan' => 'Jenis kegiatan tidak valid'], 400);
+            }
+            $l->jenis = $jenis;
+        }
+        if ($request->has('desa')) $l->desa = trim((string)$request->input('desa')) ?: null;
+        $l->save();
+        return response()->json(['value' => '200', 'pesan' => 'Success']);
+    }
+
+    // Hapus file fisik foto laporan di public/upload/laporan (hanya milik
+    // folder kita — URL lama dari domain lain dibiarkan).
+    private function hapusFileLaporanFoto($url){
+        $m = preg_match('#/upload/laporan/([A-Za-z0-9._-]+)$#', (string)$url, $mm);
+        if (!$m) return;
+        $path = base_path('public/upload/laporan/'.$mm[1]);
+        if (is_file($path)) @unlink($path);
+    }
+
+    public function hapuslaporan(Request $request){
+        $l = LaporanKegiatan::find($request->id);
+        if (!$l) {
+            return response()->json(['value' => '404', 'pesan' => 'Laporan tidak ditemukan'], 404);
+        }
+        foreach (LaporanFoto::where('idlaporan', $l->id)->get() as $f) {
+            $this->hapusFileLaporanFoto($f->url);
+            $f->delete();
+        }
+        $l->delete();
+        return response()->json(['value' => '200', 'pesan' => 'Success']);
+    }
+
+    public function uploadlaporanfoto(Request $request){
+        $l = LaporanKegiatan::find($request->idlaporan);
+        if (!$l) {
+            return response()->json(['value' => '404', 'pesan' => 'Laporan tidak ditemukan'], 404);
+        }
+        [$url, $err] = $this->prosesUploadFoto($request, 'laporan', 'idlaporan');
+        if ($err) return $err;
+        if ($url === null) {
+            return response()->json(['value' => '400', 'pesan' => 'File foto wajib diisi'], 400);
+        }
+        $f = new LaporanFoto();
+        $f->idlaporan = $l->id;
+        $f->url = $url;
+        $f->save();
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $f->id, 'url' => $url]);
+    }
+
+    public function hapuslaporanfoto(Request $request){
+        $f = LaporanFoto::find($request->id);
+        if (!$f) {
+            return response()->json(['value' => '404', 'pesan' => 'Foto tidak ditemukan'], 404);
+        }
+        $this->hapusFileLaporanFoto($f->url);
+        $f->delete();
         return response()->json(['value' => '200', 'pesan' => 'Success']);
     }
 
