@@ -34,6 +34,7 @@ use App\Models\SpeciesCatalog;
 use App\Models\Testimoni;
 use App\Models\Partner;
 use App\Models\Cerita;
+use App\Models\TemplateSertifikat;
 use App\Models\LaporanKegiatan;
 use App\Models\LaporanFoto;
 use App\Models\Pembayarantagging;
@@ -3830,6 +3831,27 @@ public function confirmasipembayaran(Request $request){
 
 
 
+  // Template background sertifikat web — array polos (tanpa wrapper
+  // {value,pesan}) karena dikonsumsi halaman publik sertifikat via apiGet.
+  // Resolusi ?tpl=<id> terjadi web-side; link lama otomatis fallback
+  // bila template dihapus/nonaktif.
+  public function templatelist(){
+    $data = TemplateSertifikat::orderBy('id')->get();
+    $items = array();
+    foreach ($data as $k) {
+      $b['id'] = $k->id;
+      $b['nama'] = $k->nama;
+      $b['file'] = $k->file;
+      $b['aktif'] = (int)$k->aktif;
+      $b['utama'] = (int)$k->utama;
+      array_push($items, $b);
+    }
+    return response()->json($items);
+  }
+
+
+
+
   public function pohonhighlight(){
     $this->kedaluwarsaPembayaran();
     $data=Pohon::where([['highlight',1],['adopted','available']])->get();
@@ -4856,6 +4878,72 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value' => '404', 'pesan' => 'Slider tidak ditemukan'], 404);
     }
     $s->delete();
+    return response()->json(['value' => '200', 'pesan' => 'Success']);
+  }
+
+  // ===== CRUD template sertifikat untuk admin web =====
+  // Pilihan template hanya di link share (?tpl=) — tidak persist ke
+  // data_adopsi; file fisik TIDAK dihapus saat row dihapus (pola slider),
+  // link lama otomatis fallback ke template utama/bg bawaan.
+
+  public function tambahtemplate(Request $request){
+    $nama = trim((string)$request->input('nama'));
+    $file = trim((string)$request->input('file'));
+    if ($nama === '' || $file === '') {
+      return response()->json(['value' => '400', 'pesan' => 'Nama dan file gambar wajib diisi'], 400);
+    }
+    $t = new TemplateSertifikat();
+    $t->nama = $nama;
+    $t->file = $file; // filename polos hasil uploadcover di public/assets
+    $t->aktif = 1;
+    $t->utama = $request->input('utama') == 1 ? 1 : 0;
+    $t->save();
+    if ($t->utama) {
+      DB::table('template_sertifikat')->where('id', '!=', $t->id)->update(['utama' => 0]);
+    }
+    return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $t->id]);
+  }
+
+  public function edittemplate(Request $request){
+    $t = TemplateSertifikat::find($request->id);
+    if (!$t) {
+      return response()->json(['value' => '404', 'pesan' => 'Template tidak ditemukan'], 404);
+    }
+    $utamaLama = (int)$t->utama;
+    if ($request->filled('nama')) $t->nama = trim((string)$request->input('nama'));
+    if ($request->filled('file')) $t->file = trim((string)$request->input('file'));
+    if ($request->filled('utama')) {
+      if ((int)$request->input('utama') === 1) {
+        // template utama wajib aktif — default sertifikat tak boleh mati
+        $t->utama = 1;
+        $t->aktif = 1;
+        DB::table('template_sertifikat')->where('id', '!=', $t->id)->update(['utama' => 0]);
+      } else {
+        $t->utama = 0;
+      }
+    }
+    if ($request->filled('aktif')) {
+      $t->aktif = (int)$request->input('aktif') === 1 ? 1 : 0;
+    }
+    // Default tak boleh mati: utama=1 pasti aktif, dan template yang SAAT
+    // INI utama tidak boleh dilepas + dinonaktifkan sekaligus (silently
+    // mengubah default semua sertifikat). Template biasa bebas dinonaktifkan.
+    if ((int)$t->utama === 1 && (int)$t->aktif === 0) {
+      return response()->json(['value' => '400', 'pesan' => 'Template utama tidak bisa dinonaktifkan — jadikan template lain sebagai utama terlebih dahulu'], 400);
+    }
+    if ($utamaLama === 1 && (int)$t->utama === 0 && (int)$t->aktif === 0) {
+      return response()->json(['value' => '400', 'pesan' => 'Template utama tidak bisa dinonaktifkan — jadikan template lain sebagai utama terlebih dahulu'], 400);
+    }
+    $t->save();
+    return response()->json(['value' => '200', 'pesan' => 'Success']);
+  }
+
+  public function hapustemplate(Request $request){
+    $t = TemplateSertifikat::find($request->id);
+    if (!$t) {
+      return response()->json(['value' => '404', 'pesan' => 'Template tidak ditemukan'], 404);
+    }
+    $t->delete();
     return response()->json(['value' => '200', 'pesan' => 'Success']);
   }
 

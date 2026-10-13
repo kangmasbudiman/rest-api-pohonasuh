@@ -150,6 +150,11 @@ Route::post('hapuspohon', [ApiController::class, 'hapuspohon']);
 Route::post('tambahslider', [ApiController::class, 'tambahslider']);
 Route::post('editslider', [ApiController::class, 'editslider']);
 Route::post('hapusslider', [ApiController::class, 'hapusslider']);
+// Template background sertifikat web (admin unggah, donatur pilih saat share via ?tpl=)
+Route::get('templatelist', [ApiController::class, 'templatelist']);
+Route::post('tambahtemplate', [ApiController::class, 'tambahtemplate']);
+Route::post('edittemplate', [ApiController::class, 'edittemplate']);
+Route::post('hapustemplate', [ApiController::class, 'hapustemplate']);
 // Fitur adopsi lindungihutan.com (2026-09-26)
 Route::get('statistikdampak', [ApiController::class, 'statistikdampak']);
 Route::get('adopsiterkini', [ApiController::class, 'adopsiterkini']);
