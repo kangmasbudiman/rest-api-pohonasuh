@@ -134,6 +134,7 @@ Route::post('lihatfototaging', [ApiController::class, 'lihatfototaging']);
 Route::post('fototagingorder', [ApiController::class, 'fototagingorder']);
 /*integrasi website*/
 Route::post('pohonbykode', [ApiController::class, 'pohonbykode']);
+Route::post('riwayatpohon', [ApiController::class, 'riwayatpohon']);
 Route::get('sertifikatpublik/{certnum}', [ApiController::class, 'sertifikatpublik'])
   ->where('certnum', '.*'); // certnum mengandung '/' (mis. 001/LPHD-RA/2026)
 Route::post('kirimemailsertifikat', [ApiController::class, 'kirimemailsertifikat']);

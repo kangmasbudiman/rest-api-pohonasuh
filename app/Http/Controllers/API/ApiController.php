@@ -4372,6 +4372,46 @@ public function confirmasipembayaran(Request $request){
     return response()->json($p);
   }
 
+  // Riwayat adopsi satu pohon by kode (halaman detail publik web): siapa
+  // pengasuh + masa adopsi (tgl_adopt s.d. tgl_exp). Baris batal/expire sudah
+  // terhapus dari data_adopsi, jadi sisa = adopsi berjalan/lampau. Legacy
+  // 2015-2023 sering tanpa tgl_exp → selesai dihitung tgl_adopt + dur tahun.
+  public function riwayatpohon(Request $request){
+    $kode = trim((string) $request->input('idpohon'));
+    if ($kode === '') {
+      return response()->json([], 400);
+    }
+    $rows = Dataadopsi::leftJoin('member', 'member.id', '=', 'data_adopsi.pengasuh')
+      ->where('data_adopsi.idpohon', $kode)
+      ->orderByDesc('data_adopsi.tgl_adopt')
+      ->orderByDesc('data_adopsi.id')
+      ->get([
+        'data_adopsi.id', 'data_adopsi.tgl_adopt', 'data_adopsi.tgl_exp',
+        'data_adopsi.dur', 'data_adopsi.nama', 'data_adopsi.invoice',
+        'member.name as pengasuh_nama',
+      ]);
+    $hasil = $rows->map(function ($r) {
+      $selesai = $r->tgl_exp;
+      if (!$selesai && $r->tgl_adopt && $r->dur) {
+        $selesai = date('Y-m-d', strtotime("+$r->dur year", strtotime($r->tgl_adopt)));
+      }
+      $hadiah = trim((string) $r->nama);
+      return [
+        'id' => $r->id,
+        'nama' => ($r->pengasuh_nama && trim((string) $r->pengasuh_nama) !== '')
+          ? $r->pengasuh_nama
+          : ($hadiah !== '' ? $hadiah : '-'),
+        'hadiah' => $hadiah !== '' ? $hadiah : null,
+        'tgl_adopt' => $r->tgl_adopt,
+        'tgl_exp' => $selesai,
+        'dur' => (int) $r->dur,
+        'invoice' => (string) $r->invoice,
+        'aktif' => $selesai ? (string) $selesai >= date('Y-m-d') : false,
+      ];
+    });
+    return response()->json($hasil);
+  }
+
   // Data sertifikat adopsi publik by certnum (halaman /sertifikat web).
   // Satu certnum menutup satu invoice (bisa >1 pohon) → jml_pohon dihitung
   // dari baris data_adopsi ber-certnum sama (lebih akurat daripada
