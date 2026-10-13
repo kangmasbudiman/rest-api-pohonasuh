@@ -4412,6 +4412,24 @@ public function confirmasipembayaran(Request $request){
     return response()->json($hasil);
   }
 
+  // Pesan "Message and Impression" sertifikat — donatur (pemilik adopsi)
+  // menambah/mengubah sendiri setelah sertifikat terbit. Satu certnum
+  // menutup satu invoice → memo disamakan ke semua baris invoice itu.
+  public function updatememosertifikat(Request $request){
+    $certnum = trim((string) $request->input('certnum'));
+    $id = (int) $request->input('id');
+    $memo = mb_substr(trim((string) $request->input('memo')), 0, 255);
+    if ($certnum === '' || $id <= 0) {
+      return response()->json(['value' => '400', 'pesan' => 'Data tidak lengkap']);
+    }
+    $pengasuh = Dataadopsi::where('certnum', $certnum)->distinct()->pluck('pengasuh')->all();
+    if (count($pengasuh) !== 1 || (int) $pengasuh[0] !== $id) {
+      return response()->json(['value' => '403', 'pesan' => 'Bukan sertifikat Anda']);
+    }
+    Dataadopsi::where('certnum', $certnum)->update(['memo' => $memo]);
+    return response()->json(['value' => '200', 'pesan' => 'Success']);
+  }
+
   // Data sertifikat adopsi publik by certnum (halaman /sertifikat web).
   // Satu certnum menutup satu invoice (bisa >1 pohon) → jml_pohon dihitung
   // dari baris data_adopsi ber-certnum sama (lebih akurat daripada
