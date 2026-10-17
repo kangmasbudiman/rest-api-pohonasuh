@@ -35,6 +35,7 @@ use App\Models\Testimoni;
 use App\Models\Partner;
 use App\Models\Cerita;
 use App\Models\TemplateSertifikat;
+use App\Models\TemplateShare;
 use App\Models\LaporanKegiatan;
 use App\Models\LaporanFoto;
 use App\Models\Pembayarantagging;
@@ -4942,6 +4943,112 @@ public function confirmasipembayaran(Request $request){
     $t = TemplateSertifikat::find($request->id);
     if (!$t) {
       return response()->json(['value' => '404', 'pesan' => 'Template tidak ditemukan'], 404);
+    }
+    $t->delete();
+    return response()->json(['value' => '200', 'pesan' => 'Success']);
+  }
+
+  // ===== CRUD template share "Bagikan Aksi Saya" (per desa, story
+  // 1080x1920). utama unik PER DESA; scoping petugas via pivot
+  // desa_petugas (pola laporanlist) — kolom desa menyimpan desa.nama.
+  // File fisik TIDAK dihapus saat row dihapus (pola slider/template).
+
+  // Nama desa yang boleh dikelola petugas tsb (kosong = tanpa batas).
+  private function desaPetugas($idpetugas){
+    if (!$idpetugas) return null;
+    $iddesa = DesaPetugas::where('idpetugas', $idpetugas)->pluck('iddesa');
+    return Desa::whereIn('id', $iddesa)->pluck('nama')->all();
+  }
+
+  public function templatesharelist(Request $request){
+    $q = TemplateShare::query();
+    $petugas = $this->desaPetugas($request->input('idpetugas'));
+    if ($petugas !== null) {
+      $q->whereIn('desa', $petugas);
+    }
+    if ($request->filled('desa')) {
+      $q->where('desa', trim((string)$request->input('desa')));
+    }
+    $items = [];
+    foreach ($q->orderBy('desa')->orderBy('id')->get() as $t) {
+      $items[] = [
+        'id' => $t->id,
+        'desa' => $t->desa,
+        'nama' => $t->nama,
+        'file' => $t->file,
+        'aktif' => (int)$t->aktif,
+        'utama' => (int)$t->utama,
+      ];
+    }
+    return response()->json($items);
+  }
+
+  public function tambahtemplateshare(Request $request){
+    $desa = strtolower(trim((string)$request->input('desa')));
+    $nama = trim((string)$request->input('nama'));
+    $file = trim((string)$request->input('file'));
+    if ($desa === '' || $nama === '' || $file === '') {
+      return response()->json(['value' => '400', 'pesan' => 'Desa, nama, dan file gambar wajib diisi'], 400);
+    }
+    if (!Desa::where('nama', $desa)->exists()) {
+      return response()->json(['value' => '400', 'pesan' => 'Desa tidak ditemukan'], 400);
+    }
+    $petugas = $this->desaPetugas($request->input('idpetugas'));
+    if ($petugas !== null && !in_array($desa, $petugas, true)) {
+      return response()->json(['value' => '403', 'pesan' => 'Anda hanya boleh mengelola template desa Anda'], 403);
+    }
+    $t = new TemplateShare();
+    $t->desa = $desa;
+    $t->nama = $nama;
+    $t->file = $file;
+    $t->aktif = 1;
+    $t->utama = $request->input('utama') == 1 ? 1 : 0;
+    $t->save();
+    if ($t->utama) {
+      DB::table('template_share')->where('desa', $t->desa)->where('id', '!=', $t->id)->update(['utama' => 0]);
+    }
+    return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $t->id]);
+  }
+
+  public function edittemplateshare(Request $request){
+    $t = TemplateShare::find($request->id);
+    if (!$t) {
+      return response()->json(['value' => '404', 'pesan' => 'Template tidak ditemukan'], 404);
+    }
+    $petugas = $this->desaPetugas($request->input('idpetugas'));
+    if ($petugas !== null && !in_array($t->desa, $petugas, true)) {
+      return response()->json(['value' => '403', 'pesan' => 'Anda hanya boleh mengelola template desa Anda'], 403);
+    }
+    if ($request->filled('nama')) $t->nama = trim((string)$request->input('nama'));
+    if ($request->filled('file')) $t->file = trim((string)$request->input('file'));
+    if ($request->filled('utama')) {
+      if ((int)$request->input('utama') === 1) {
+        $t->utama = 1;
+        $t->aktif = 1;
+        DB::table('template_share')->where('desa', $t->desa)->where('id', '!=', $t->id)->update(['utama' => 0]);
+      } else {
+        $t->utama = 0;
+      }
+    }
+    if ($request->filled('aktif')) {
+      $t->aktif = (int)$request->input('aktif') === 1 ? 1 : 0;
+    }
+    // utama per desa wajib aktif — default desa tak boleh mati
+    if ((int)$t->utama === 1 && (int)$t->aktif === 0) {
+      return response()->json(['value' => '400', 'pesan' => 'Template utama tidak bisa dinonaktifkan — jadikan template lain sebagai utama terlebih dahulu'], 400);
+    }
+    $t->save();
+    return response()->json(['value' => '200', 'pesan' => 'Success']);
+  }
+
+  public function hapustemplateshare(Request $request){
+    $t = TemplateShare::find($request->id);
+    if (!$t) {
+      return response()->json(['value' => '404', 'pesan' => 'Template tidak ditemukan'], 404);
+    }
+    $petugas = $this->desaPetugas($request->input('idpetugas'));
+    if ($petugas !== null && !in_array($t->desa, $petugas, true)) {
+      return response()->json(['value' => '403', 'pesan' => 'Anda hanya boleh mengelola template desa Anda'], 403);
     }
     $t->delete();
     return response()->json(['value' => '200', 'pesan' => 'Success']);

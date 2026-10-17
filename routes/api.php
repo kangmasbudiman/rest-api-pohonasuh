@@ -155,6 +155,11 @@ Route::get('templatelist', [ApiController::class, 'templatelist']);
 Route::post('tambahtemplate', [ApiController::class, 'tambahtemplate']);
 Route::post('edittemplate', [ApiController::class, 'edittemplate']);
 Route::post('hapustemplate', [ApiController::class, 'hapustemplate']);
+// Template share "Bagikan Aksi Saya" per desa (admin/petugas unggah, pengadopsi pilih saat share)
+Route::get('templatesharelist', [ApiController::class, 'templatesharelist']);
+Route::post('tambahtemplateshare', [ApiController::class, 'tambahtemplateshare']);
+Route::post('edittemplateshare', [ApiController::class, 'edittemplateshare']);
+Route::post('hapustemplateshare', [ApiController::class, 'hapustemplateshare']);
 // Fitur adopsi lindungihutan.com (2026-09-26)
 Route::get('statistikdampak', [ApiController::class, 'statistikdampak']);
 Route::get('adopsiterkini', [ApiController::class, 'adopsiterkini']);
