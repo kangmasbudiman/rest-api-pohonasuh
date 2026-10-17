@@ -4479,10 +4479,11 @@ public function confirmasipembayaran(Request $request){
       return null;
     }
     $da->jml_pohon = Dataadopsi::where('certnum', $certnum)->count();
+    $m = Member::find($da->pengasuh);
+    $da->nama_pengasuh = $m ? trim((string) $m->name) : '';
     $nama = trim((string) $da->nama);
     if ($nama === '' || $nama === '-') {
-      $m = Member::find($da->pengasuh);
-      $da->nama = $m ? $m->name : $nama;
+      $da->nama = $da->nama_pengasuh !== '' ? $da->nama_pengasuh : $nama;
     }
     // Daftar pohon per invoice untuk blok bawah sertifikat (jenis + Ø +
     // tonase per batang). idpohon tidak unik → groupBy kolom terpilih agar
@@ -4975,6 +4976,7 @@ public function confirmasipembayaran(Request $request){
         'id' => $t->id,
         'desa' => $t->desa,
         'nama' => $t->nama,
+        'subtext' => (string)($t->subtext ?? ''),
         'file' => $t->file,
         'aktif' => (int)$t->aktif,
         'utama' => (int)$t->utama,
@@ -5000,6 +5002,7 @@ public function confirmasipembayaran(Request $request){
     $t = new TemplateShare();
     $t->desa = $desa;
     $t->nama = $nama;
+    $t->subtext = trim((string)$request->input('subtext'));
     $t->file = $file;
     $t->aktif = 1;
     $t->utama = $request->input('utama') == 1 ? 1 : 0;
@@ -5020,6 +5023,7 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value' => '403', 'pesan' => 'Anda hanya boleh mengelola template desa Anda'], 403);
     }
     if ($request->filled('nama')) $t->nama = trim((string)$request->input('nama'));
+    if ($request->exists('subtext')) $t->subtext = trim((string)$request->input('subtext'));
     if ($request->filled('file')) $t->file = trim((string)$request->input('file'));
     if ($request->filled('utama')) {
       if ((int)$request->input('utama') === 1) {
