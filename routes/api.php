@@ -160,6 +160,11 @@ Route::get('templatesharelist', [ApiController::class, 'templatesharelist']);
 Route::post('tambahtemplateshare', [ApiController::class, 'tambahtemplateshare']);
 Route::post('edittemplateshare', [ApiController::class, 'edittemplateshare']);
 Route::post('hapustemplateshare', [ApiController::class, 'hapustemplateshare']);
+
+// Konten halaman "Tentang Pohon Asuh" (publik baca, admin kelola)
+Route::get('tentangpublik', [ApiController::class, 'tentangpublik']);
+Route::get('tentangkonten', [ApiController::class, 'tentangkonten']);
+Route::post('simpantentang', [ApiController::class, 'simpantentang']);
 // Fitur adopsi lindungihutan.com (2026-09-26)
 Route::get('statistikdampak', [ApiController::class, 'statistikdampak']);
 Route::get('adopsiterkini', [ApiController::class, 'adopsiterkini']);

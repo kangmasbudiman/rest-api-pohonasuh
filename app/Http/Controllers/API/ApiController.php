@@ -36,6 +36,8 @@ use App\Models\Partner;
 use App\Models\Cerita;
 use App\Models\TemplateSertifikat;
 use App\Models\TemplateShare;
+use App\Models\Tentang;
+use App\Models\TentangLangkah;
 use App\Models\LaporanKegiatan;
 use App\Models\LaporanFoto;
 use App\Models\Pembayarantagging;
@@ -5055,6 +5057,81 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value' => '403', 'pesan' => 'Anda hanya boleh mengelola template desa Anda'], 403);
     }
     $t->delete();
+    return response()->json(['value' => '200', 'pesan' => 'Success']);
+  }
+
+  // ===== Konten halaman "Tentang Pohon Asuh" (edit via admin web) =====
+
+  private function bentukTentang($semuaLangkah){
+    $t = Tentang::find(1);
+    $langkah = [];
+    $q = TentangLangkah::orderBy('urutan')->orderBy('id');
+    foreach (($semuaLangkah ? $q : $q->where('aktif', 1))->get() as $l) {
+      $item = [
+        'id' => $l->id,
+        'judul' => $l->judul,
+        'isi' => $l->isi,
+      ];
+      if ($semuaLangkah) $item['aktif'] = (int)$l->aktif;
+      $langkah[] = $item;
+    }
+    return [
+      'judul' => $t ? $t->judul : null,
+      'deskripsi' => $t ? $t->deskripsi : null,
+      'mekanisme' => $t ? $t->mekanisme : null,
+      'langkah' => $langkah,
+    ];
+  }
+
+  public function tentangpublik(){
+    return response()->json($this->bentukTentang(false));
+  }
+
+  // Versi admin: sertakan langkah nonaktif + flag aktif (muat form edit).
+  public function tentangkonten(){
+    return response()->json($this->bentukTentang(true));
+  }
+
+  // Simpan seluruh konten: row tunggal tentang (id=1) + sync langkah.
+  // langkah = string JSON [{id?, judul, isi, aktif}] — urutan array = urutan.
+  public function simpantentang(Request $request){
+    $judul = trim((string)$request->input('judul'));
+    $deskripsi = trim((string)$request->input('deskripsi'));
+    $mekanisme = trim((string)$request->input('mekanisme'));
+    $langkah = json_decode((string)$request->input('langkah'), true);
+    if (!is_array($langkah)) {
+      $langkah = [];
+    }
+    foreach ($langkah as $l) {
+      if (trim((string)($l['judul'] ?? '')) === '' || trim((string)($l['isi'] ?? '')) === '') {
+        return response()->json(['value' => '400', 'pesan' => 'Setiap langkah wajib punya judul dan isi'], 400);
+      }
+    }
+    Tentang::updateOrCreate(['id' => 1], [
+      'judul' => $judul !== '' ? $judul : null,
+      'deskripsi' => $deskripsi !== '' ? $deskripsi : null,
+      'mekanisme' => $mekanisme !== '' ? $mekanisme : null,
+    ]);
+    $idAda = [];
+    foreach (array_values($langkah) as $i => $l) {
+      $data = [
+        'judul' => trim((string)$l['judul']),
+        'isi' => trim((string)$l['isi']),
+        'urutan' => $i,
+        'aktif' => (int)($l['aktif'] ?? 1) === 0 ? 0 : 1,
+      ];
+      if (!empty($l['id'])) {
+        $row = TentangLangkah::find((int)$l['id']);
+        if ($row) {
+          $row->update($data);
+          $idAda[] = $row->id;
+        }
+      }
+      if (empty($l['id']) || !in_array((int)$l['id'], $idAda)) {
+        $idAda[] = TentangLangkah::create($data)->id;
+      }
+    }
+    TentangLangkah::whereNotIn('id', $idAda)->delete();
     return response()->json(['value' => '200', 'pesan' => 'Success']);
   }
 
