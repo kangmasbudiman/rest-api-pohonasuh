@@ -40,6 +40,9 @@ use App\Models\Tentang;
 use App\Models\TentangLangkah;
 use App\Models\LaporanKegiatan;
 use App\Models\LaporanFoto;
+use App\Models\LaporanPohon;
+use App\Models\LaporanMemo;
+use App\Models\LaporanRiwayat;
 use App\Models\Pembayarantagging;
 
 
@@ -5890,16 +5893,25 @@ public function confirmasipembayaran(Request $request){
         $b['id'] = $k->id;
         $b['idpetugas'] = $k->idpetugas;
         $b['petugas'] = $petugas ? $petugas->name : '';
+        $b['jabatan'] = (string)($k->jabatan ?? '');
         $b['judul'] = $k->judul;
         $b['jenis'] = $k->jenis;
         $b['desa'] = $k->desa ?: '';
         $b['tanggal'] = $k->tanggal instanceof \Carbon\Carbon ? $k->tanggal->format('Y-m-d') : (string)$k->tanggal;
         $b['tanggal_selesai'] = $k->tanggal_selesai instanceof \Carbon\Carbon ? $k->tanggal_selesai->format('Y-m-d') : (string)($k->tanggal_selesai ?? '');
+        $b['tempat'] = (string)($k->tempat ?? '');
+        $b['tim_tagging'] = (string)($k->tim_tagging ?? '');
+        $b['rekening_at'] = (string)($k->rekening_at ?? '');
+        $b['rekening_bank'] = (string)($k->rekening_bank ?? '');
+        $b['rekening_norek'] = (string)($k->rekening_norek ?? '');
         $b['isi'] = $k->isi;
         $b['dana'] = $k->dana !== null ? (float)$k->dana : null;
         $b['hasil'] = (string)($k->hasil ?? '');
         $b['status'] = $k->status ?: 'terkirim';
+        $b['catatan_revisi'] = (string)($k->catatan_revisi ?? '');
         $b['created_at'] = $k->created_at ? $k->created_at->format('Y-m-d H:i:s') : '';
+        $b['jml_pohon'] = LaporanPohon::where('idlaporan', $k->id)->count();
+        $b['memo'] = $this->laporanMemoJson(LaporanMemo::where('idlaporan', $k->id)->first());
         $b['foto'] = LaporanFoto::where('idlaporan', $k->id)
             ->orderBy('id')
             ->get()
@@ -5907,6 +5919,34 @@ public function confirmasipembayaran(Request $request){
             ->values()
             ->all();
         return $b;
+    }
+
+    private function laporanMemoJson($m){
+        if (!$m) return null;
+        return [
+            'id' => $m->id,
+            'nomor' => $m->nomor,
+            'tanggal' => $m->tanggal instanceof \Carbon\Carbon ? $m->tanggal->format('Y-m-d') : (string)$m->tanggal,
+            'jumlah' => (float)$m->jumlah,
+            'penerima' => $m->penerima,
+            'bank' => (string)($m->bank ?? ''),
+            'norek' => (string)($m->norek ?? ''),
+            'keperluan' => (string)($m->keperluan ?? ''),
+            'ttd_nama' => (string)($m->ttd_nama ?? ''),
+            'ttd_jabatan' => (string)($m->ttd_jabatan ?? ''),
+            'status_pencairan' => $m->status_pencairan ?: 'menunggu',
+            'catatan_pencairan' => (string)($m->catatan_pencairan ?? ''),
+            'created_at' => $m->created_at ? $m->created_at->format('Y-m-d H:i:s') : '',
+        ];
+    }
+
+    private function catatRiwayatLaporan($idlaporan, $aksi, $catatan = null, $oleh = null){
+        $r = new LaporanRiwayat();
+        $r->idlaporan = $idlaporan;
+        $r->aksi = $aksi;
+        $r->catatan = $catatan;
+        $r->oleh = $oleh;
+        $r->save();
     }
 
     public function laporanlist(Request $request){
@@ -5958,11 +5998,20 @@ public function confirmasipembayaran(Request $request){
         $l->desa = trim((string)$request->input('desa')) ?: null;
         $l->tanggal = $tanggal !== '' ? $tanggal : now()->toDateString();
         $l->tanggal_selesai = $tanggalSelesai;
+        $l->jabatan = trim((string)$request->input('jabatan')) ?: null;
+        $l->tempat = trim((string)$request->input('tempat')) ?: null;
+        $l->tim_tagging = trim((string)$request->input('tim_tagging')) ?: null;
+        $l->rekening_at = trim((string)$request->input('rekening_at')) ?: null;
+        $l->rekening_bank = trim((string)$request->input('rekening_bank')) ?: null;
+        $l->rekening_norek = trim((string)$request->input('rekening_norek')) ?: null;
         $l->isi = $isi;
         $l->dana = $dana;
         $l->hasil = trim((string)$request->input('hasil'));
         $l->status = $status;
         $l->save();
+        if ($status === 'terkirim') {
+            $this->catatRiwayatLaporan($l->id, 'dikirim', null, $idpetugas);
+        }
         return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $l->id, 'status' => $status]);
     }
 
@@ -5975,6 +6024,12 @@ public function confirmasipembayaran(Request $request){
         if ($request->filled('isi')) $l->isi = trim((string)$request->input('isi'));
         if ($request->filled('tanggal')) $l->tanggal = trim((string)$request->input('tanggal'));
         if ($request->has('tanggal_selesai')) $l->tanggal_selesai = trim((string)$request->input('tanggal_selesai')) ?: null;
+        if ($request->has('jabatan')) $l->jabatan = trim((string)$request->input('jabatan')) ?: null;
+        if ($request->has('tempat')) $l->tempat = trim((string)$request->input('tempat')) ?: null;
+        if ($request->has('tim_tagging')) $l->tim_tagging = trim((string)$request->input('tim_tagging')) ?: null;
+        if ($request->has('rekening_at')) $l->rekening_at = trim((string)$request->input('rekening_at')) ?: null;
+        if ($request->has('rekening_bank')) $l->rekening_bank = trim((string)$request->input('rekening_bank')) ?: null;
+        if ($request->has('rekening_norek')) $l->rekening_norek = trim((string)$request->input('rekening_norek')) ?: null;
         if ($request->has('dana')) {
             $dana = $request->filled('dana') && $request->dana !== '' ? (float)str_replace(',', '.', preg_replace('/[^0-9,.]/', '', (string)$request->dana)) : null;
             if ($dana !== null && $dana < 0) {
@@ -5995,6 +6050,14 @@ public function confirmasipembayaran(Request $request){
                 if ($judul === '' || $isi === '' || $tanggal === '') {
                     return response()->json(['value' => '400', 'pesan' => 'Nama kegiatan, tanggal, dan uraian wajib diisi sebelum dikirim'], 400);
                 }
+            }
+            if ($status === 'terkirim' && $l->status !== 'terkirim' && $l->status !== 'disetujui') {
+                // Kirim ulang (dari draft/revisi) → catat riwayat & bersihkan revisi.
+                $l->catatan_revisi = null;
+                $this->catatRiwayatLaporan($l->id, 'dikirim', null, $l->idpetugas);
+            }
+            if ($status === 'disetujui' && $l->status !== 'disetujui') {
+                $this->catatRiwayatLaporan($l->id, 'verifikasi', null, (int)$request->input('oleh') ?: null);
             }
             $l->status = $status;
         }
@@ -6022,7 +6085,205 @@ public function confirmasipembayaran(Request $request){
         }
         $l->status = 'disetujui';
         $l->save();
+        if ($l->wasChanged('status')) {
+            $this->catatRiwayatLaporan($l->id, 'verifikasi', null, (int)$request->input('oleh') ?: null);
+        }
         return response()->json(['value' => '200', 'pesan' => 'Success', 'status' => $l->status]);
+    }
+
+    // Minta revisi laporan terkirim (admin) — status jadi revisi + catatan.
+    public function revisilaporan(Request $request){
+        $l = LaporanKegiatan::find($request->id);
+        if (!$l) {
+            return response()->json(['value' => '404', 'pesan' => 'Laporan tidak ditemukan'], 404);
+        }
+        if ($l->status === 'disetujui') {
+            return response()->json(['value' => '400', 'pesan' => 'Laporan sudah diverifikasi dan tidak bisa diminta revisi'], 400);
+        }
+        $catatan = trim((string)$request->input('catatan'));
+        if ($catatan === '') {
+            return response()->json(['value' => '400', 'pesan' => 'Catatan revisi wajib diisi'], 400);
+        }
+        $l->status = 'revisi';
+        $l->catatan_revisi = $catatan;
+        $l->save();
+        $this->catatRiwayatLaporan($l->id, 'revisi', $catatan, (int)$request->input('oleh') ?: null);
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'status' => $l->status]);
+    }
+
+    // Detail laporan untuk halaman periksa admin/petugas: BTOR + pohon
+    // terpilih + memo + riwayat proses (pola join pembayaranlist).
+    public function laporandetail(Request $request){
+        $l = LaporanKegiatan::find($request->id);
+        if (!$l) {
+            return response()->json(['value' => '404', 'pesan' => 'Laporan tidak ditemukan'], 404);
+        }
+        $b = $this->laporanKeJson($request, $l);
+
+        $pohon = DB::table('laporan_pohon as lp')
+            ->join('data_adopsi as a', 'a.id', '=', 'lp.idadopsi')
+            ->leftJoin(DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'), 'pmin.idpohon', '=', 'a.idpohon')
+            ->leftJoin('data_pohon as p', 'p.id', '=', 'pmin.pmin_id')
+            ->where('lp.idlaporan', $l->id)
+            ->orderBy('a.idpohon')
+            ->get([
+                'lp.idadopsi',
+                'a.idpohon',
+                'a.invoice',
+                'a.nama',
+                'a.desa',
+                'p.localname',
+                'p.species',
+                DB::raw('(SELECT COUNT(*) FROM foto_tagging f WHERE f.idadopsi = a.id) as jml_foto'),
+                DB::raw('(SELECT MAX(f2.tanggal) FROM foto_tagging f2 WHERE f2.idadopsi = a.id) as tgl_tagging'),
+            ])
+            ->map(function ($r) {
+                return [
+                    'idadopsi' => $r->idadopsi,
+                    'idpohon' => $r->idpohon,
+                    'invoice' => $r->invoice,
+                    'donatur' => $r->nama,
+                    'desa' => $r->desa,
+                    'localname' => $r->localname ?: $r->idpohon,
+                    'species' => (string)($r->species ?? ''),
+                    'jml_foto' => (int)$r->jml_foto,
+                    'tgl_tagging' => $r->tgl_tagging,
+                ];
+            })
+            ->values()
+            ->all();
+        $b['pohon'] = $pohon;
+
+        $b['riwayat'] = LaporanRiwayat::where('idlaporan', $l->id)
+            ->orderBy('id')
+            ->get()
+            ->map(function ($r) {
+                $m = $r->oleh ? Member::find($r->oleh) : null;
+                return [
+                    'aksi' => $r->aksi,
+                    'catatan' => (string)($r->catatan ?? ''),
+                    'oleh' => $m ? $m->name : '',
+                    'waktu' => $r->created_at ? $r->created_at->format('Y-m-d H:i:s') : '',
+                ];
+            })
+            ->values()
+            ->all();
+
+        return response()->json($b);
+    }
+
+    // Set daftar pohon hasil tagging milik laporan (replace-set, petugas).
+    public function setpohonlaporan(Request $request){
+        $l = LaporanKegiatan::find($request->input('idlaporan'));
+        if (!$l) {
+            return response()->json(['value' => '404', 'pesan' => 'Laporan tidak ditemukan'], 404);
+        }
+        if ($l->status === 'disetujui') {
+            return response()->json(['value' => '400', 'pesan' => 'Laporan sudah diverifikasi — daftar pohon tidak bisa diubah'], 400);
+        }
+        $ids = collect((array)$request->input('idadopsi'))
+            ->map(fn ($v) => (int)$v)
+            ->filter()
+            ->unique()
+            ->values();
+        if ($ids->isNotEmpty()) {
+            $ada = DB::table('data_adopsi')->whereIn('id', $ids)->pluck('id');
+            if ($ada->count() !== $ids->count()) {
+                return response()->json(['value' => '400', 'pesan' => 'Ada pohon yang tidak valid'], 400);
+            }
+        }
+        LaporanPohon::where('idlaporan', $l->id)->delete();
+        foreach ($ids as $idadopsi) {
+            $p = new LaporanPohon();
+            $p->idlaporan = $l->id;
+            $p->idadopsi = $idadopsi;
+            $p->save();
+        }
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'jumlah' => $ids->count()]);
+    }
+
+    // Terbitkan Memo Pencairan (admin) — hanya untuk laporan terverifikasi.
+    public function tambahmemo(Request $request){
+        $l = LaporanKegiatan::find($request->input('idlaporan'));
+        if (!$l) {
+            return response()->json(['value' => '404', 'pesan' => 'Laporan tidak ditemukan'], 404);
+        }
+        if ($l->status !== 'disetujui') {
+            return response()->json(['value' => '400', 'pesan' => 'BTOR harus diverifikasi dulu sebelum memo diterbitkan'], 400);
+        }
+        if (LaporanMemo::where('idlaporan', $l->id)->exists()) {
+            return response()->json(['value' => '400', 'pesan' => 'Memo untuk laporan ini sudah diterbitkan'], 400);
+        }
+        $jumlah = (float)str_replace(',', '.', preg_replace('/[^0-9,.]/', '', (string)$request->input('jumlah')));
+        if ($jumlah <= 0) {
+            return response()->json(['value' => '400', 'pesan' => 'Jumlah dana tidak valid'], 400);
+        }
+        $penerima = trim((string)$request->input('penerima'));
+        if ($penerima === '') {
+            return response()->json(['value' => '400', 'pesan' => 'Penerima dana wajib diisi'], 400);
+        }
+        $tanggal = trim((string)$request->input('tanggal')) ?: now()->toDateString();
+        $statusPencairan = trim((string)$request->input('status_pencairan')) ?: 'menunggu';
+        if (!in_array($statusPencairan, ['menunggu', 'diproses', 'dicairkan'])) {
+            return response()->json(['value' => '400', 'pesan' => 'Status pencairan tidak valid'], 400);
+        }
+
+        $m = new LaporanMemo();
+        $m->idlaporan = $l->id;
+        $m->nomor = 'TEMP-' . uniqid();
+        $m->tanggal = $tanggal;
+        $m->jumlah = $jumlah;
+        $m->penerima = $penerima;
+        $m->bank = trim((string)$request->input('bank')) ?: null;
+        $m->norek = trim((string)$request->input('norek')) ?: null;
+        $m->keperluan = trim((string)$request->input('keperluan')) ?: null;
+        $m->ttd_nama = trim((string)$request->input('ttd_nama')) ?: null;
+        $m->ttd_jabatan = trim((string)$request->input('ttd_jabatan')) ?: null;
+        $m->status_pencairan = $statusPencairan;
+        $m->catatan_pencairan = trim((string)$request->input('catatan_pencairan')) ?: null;
+        $m->created_by = (int)$request->input('oleh') ?: null;
+        $m->save();
+        // Nomor final memakai id baris → dijamin unik tanpa race count.
+        $m->nomor = 'MEMO/' . date('Y', strtotime($tanggal)) . '/' . str_pad((string)$m->id, 4, '0', STR_PAD_LEFT);
+        $m->save();
+
+        $this->catatRiwayatLaporan($l->id, 'memo', $m->nomor, (int)$request->input('oleh') ?: null);
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $m->id, 'nomor' => $m->nomor]);
+    }
+
+    // Perbarui memo / status pencairan dana (admin).
+    public function editmemo(Request $request){
+        $m = LaporanMemo::find($request->id);
+        if (!$m) {
+            return response()->json(['value' => '404', 'pesan' => 'Memo tidak ditemukan'], 404);
+        }
+        if ($request->filled('tanggal')) $m->tanggal = trim((string)$request->input('tanggal'));
+        if ($request->has('jumlah')) {
+            $jumlah = $request->filled('jumlah') ? (float)str_replace(',', '.', preg_replace('/[^0-9,.]/', '', (string)$request->input('jumlah'))) : $m->jumlah;
+            if ($jumlah <= 0) {
+                return response()->json(['value' => '400', 'pesan' => 'Jumlah dana tidak valid'], 400);
+            }
+            $m->jumlah = $jumlah;
+        }
+        if ($request->filled('penerima')) $m->penerima = trim((string)$request->input('penerima'));
+        if ($request->has('bank')) $m->bank = trim((string)$request->input('bank')) ?: null;
+        if ($request->has('norek')) $m->norek = trim((string)$request->input('norek')) ?: null;
+        if ($request->has('keperluan')) $m->keperluan = trim((string)$request->input('keperluan')) ?: null;
+        if ($request->has('ttd_nama')) $m->ttd_nama = trim((string)$request->input('ttd_nama')) ?: null;
+        if ($request->has('ttd_jabatan')) $m->ttd_jabatan = trim((string)$request->input('ttd_jabatan')) ?: null;
+        if ($request->has('catatan_pencairan')) $m->catatan_pencairan = trim((string)$request->input('catatan_pencairan')) ?: null;
+        if ($request->filled('status_pencairan')) {
+            $statusPencairan = trim((string)$request->input('status_pencairan'));
+            if (!in_array($statusPencairan, ['menunggu', 'diproses', 'dicairkan'])) {
+                return response()->json(['value' => '400', 'pesan' => 'Status pencairan tidak valid'], 400);
+            }
+            if ($statusPencairan !== $m->status_pencairan) {
+                $m->status_pencairan = $statusPencairan;
+                $this->catatRiwayatLaporan($m->idlaporan, 'pencairan', $statusPencairan, (int)$request->input('oleh') ?: null);
+            }
+        }
+        $m->save();
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'status_pencairan' => $m->status_pencairan]);
     }
 
     // Hapus file fisik foto laporan di public/upload/laporan (hanya milik
@@ -6043,6 +6304,9 @@ public function confirmasipembayaran(Request $request){
             $this->hapusFileLaporanFoto($f->url);
             $f->delete();
         }
+        LaporanPohon::where('idlaporan', $l->id)->delete();
+        LaporanMemo::where('idlaporan', $l->id)->delete();
+        LaporanRiwayat::where('idlaporan', $l->id)->delete();
         $l->delete();
         return response()->json(['value' => '200', 'pesan' => 'Success']);
     }
