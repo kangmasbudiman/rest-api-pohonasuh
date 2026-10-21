@@ -41,6 +41,10 @@ use App\Models\Tentang;
 use App\Models\TentangLangkah;
 use App\Models\LaporanKegiatan;
 use App\Models\LaporanFoto;
+use App\Models\Btor;
+use App\Models\BtorOrder;
+use App\Models\BtorMemo;
+use App\Models\BtorRiwayat;
 use App\Models\Pembayarantagging;
 
 
@@ -6165,6 +6169,487 @@ public function confirmasipembayaran(Request $request){
         $this->hapusFileLaporanFoto($f->url);
         $f->delete();
         return response()->json(['value' => '200', 'pesan' => 'Success']);
+    }
+
+    // ===================== Laporan BTOR (per desa × per petugas) =====================
+    // Laporan kegiatan tagging yang digenerate dari order tagging selesai
+    // (data_adopsi.proses=3). Satu order hanya boleh masuk satu BTOR
+    // (btor_order.idadopsi UNIQUE). Alur: draft → terkirim → disetujui
+    // (verifikasi admin) → memo pencairan dana.
+
+    private function btorKeJson($k){
+        $petugas = Member::find($k->idpetugas);
+        $b = [];
+        $b['id'] = $k->id;
+        $b['idpetugas'] = $k->idpetugas;
+        $b['petugas'] = $petugas ? $petugas->name : '';
+        $b['iddesa'] = $k->iddesa;
+        $b['desa'] = (string)($k->desa_nama ?? '');
+        $b['judul'] = $k->judul;
+        $b['tanggal'] = $k->tanggal instanceof \Carbon\Carbon ? $k->tanggal->format('Y-m-d') : (string)$k->tanggal;
+        $b['tanggal_selesai'] = $k->tanggal_selesai instanceof \Carbon\Carbon ? $k->tanggal_selesai->format('Y-m-d') : (string)($k->tanggal_selesai ?? '');
+        $b['isi'] = (string)($k->isi ?? '');
+        $b['dana'] = $k->dana !== null ? (float)$k->dana : null;
+        $b['hasil'] = (string)($k->hasil ?? '');
+        $b['status'] = $k->status ?: 'terkirim';
+        $b['catatan_revisi'] = (string)($k->catatan_revisi ?? '');
+        $b['jabatan'] = (string)($k->jabatan ?? '');
+        $b['tim_tagging'] = (string)($k->tim_tagging ?? '');
+        $b['rekening_at'] = (string)($k->rekening_at ?? '');
+        $b['rekening_bank'] = (string)($k->rekening_bank ?? '');
+        $b['rekening_norek'] = (string)($k->rekening_norek ?? '');
+        $b['created_at'] = $k->created_at ? $k->created_at->format('Y-m-d H:i:s') : '';
+        $b['jml_order'] = (int) BtorOrder::where('idbtor', $k->id)->count();
+        $b['total_price'] = (float) DB::table('btor_order as bo')
+            ->join('data_adopsi as a', 'a.id', '=', 'bo.idadopsi')
+            ->where('bo.idbtor', $k->id)
+            ->sum('a.price');
+        $b['memo'] = $this->btorMemoJson(BtorMemo::where('idbtor', $k->id)->first());
+        return $b;
+    }
+
+    private function btorMemoJson($m){
+        if (!$m) return null;
+        return [
+            'id' => $m->id,
+            'nomor' => $m->nomor,
+            'tanggal' => $m->tanggal instanceof \Carbon\Carbon ? $m->tanggal->format('Y-m-d') : (string)$m->tanggal,
+            'dari' => (string)($m->dari ?? ''),
+            'kepada' => (string)($m->kepada ?? ''),
+            'proyek' => (string)($m->proyek ?? ''),
+            'isi' => (string)($m->isi ?? ''),
+            'jumlah' => (float)$m->jumlah,
+            'penerima' => $m->penerima,
+            'bank' => (string)($m->bank ?? ''),
+            'norek' => (string)($m->norek ?? ''),
+            'keperluan' => (string)($m->keperluan ?? ''),
+            'ttd_nama' => (string)($m->ttd_nama ?? ''),
+            'ttd_jabatan' => (string)($m->ttd_jabatan ?? ''),
+            'status_pencairan' => $m->status_pencairan ?: 'menunggu',
+            'catatan_pencairan' => (string)($m->catatan_pencairan ?? ''),
+            'created_at' => $m->created_at ? $m->created_at->format('Y-m-d H:i:s') : '',
+        ];
+    }
+
+    private function catatRiwayatBtor($idbtor, $aksi, $catatan = null, $oleh = null){
+        $r = new BtorRiwayat();
+        $r->idbtor = $idbtor;
+        $r->aksi = $aksi;
+        $r->catatan = $catatan;
+        $r->oleh = $oleh;
+        $r->save();
+    }
+
+    public function btorlist(Request $request){
+        $q = Btor::query();
+        if ($request->filled('id')) {
+            $q->where('id', $request->id);
+        }
+        if ($request->filled('idpetugas')) {
+            $q->where('idpetugas', $request->idpetugas);
+        }
+        if ($request->filled('iddesa')) {
+            $q->where('iddesa', $request->iddesa);
+        }
+        if ($request->filled('status')) {
+            $q->where('status', $request->status);
+        }
+        return response()->json($q->orderByDesc('id')->get()->map(fn ($k) => $this->btorKeJson($k))->values()->all());
+    }
+
+    public function btordetail(Request $request){
+        $b = Btor::find($request->id);
+        if (!$b) {
+            return response()->json(['value' => '404', 'pesan' => 'BTOR tidak ditemukan'], 404);
+        }
+        $out = $this->btorKeJson($b);
+
+        // idpohon tak unik di data_pohon → dedup MIN(id) agar join 1:1 (anti fan-out)
+        $out['orders'] = DB::table('btor_order as bo')
+            ->join('data_adopsi as a', 'a.id', '=', 'bo.idadopsi')
+            ->leftJoin(DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'), 'pmin.idpohon', '=', 'a.idpohon')
+            ->leftJoin('data_pohon as p', 'p.id', '=', 'pmin.pmin_id')
+            ->where('bo.idbtor', $b->id)
+            ->orderBy('a.idpohon')
+            ->get([
+                'a.id as idadopsi',
+                'a.idpohon',
+                'a.invoice',
+                'a.nama',
+                'a.price',
+                'a.proses',
+                'p.localname',
+                DB::raw('(SELECT COUNT(*) FROM foto_tagging f WHERE f.idadopsi = a.id) as jml_foto'),
+                DB::raw('(SELECT MAX(f2.tanggal) FROM foto_tagging f2 WHERE f2.idadopsi = a.id) as tgl_tagging'),
+            ])
+            ->map(function ($r) {
+                return [
+                    'idadopsi' => $r->idadopsi,
+                    'idpohon' => $r->idpohon,
+                    'invoice' => $r->invoice,
+                    'donatur' => $r->nama,
+                    'price' => (float)$r->price,
+                    'proses' => (int)$r->proses,
+                    'localname' => $r->localname ?: $r->idpohon,
+                    'jml_foto' => (int)$r->jml_foto,
+                    'tgl_tagging' => $r->tgl_tagging,
+                    'foto' => Fototaging::where('idadopsi', $r->idadopsi)
+                        ->orderByDesc('id')
+                        ->limit(3)
+                        ->get(['id', 'urlGambar'])
+                        ->map(fn ($f) => ['id' => $f->id, 'url' => $f->urlGambar])
+                        ->values()
+                        ->all(),
+                ];
+            })
+            ->values()
+            ->all();
+
+        $out['riwayat'] = BtorRiwayat::where('idbtor', $b->id)
+            ->orderBy('id')
+            ->get()
+            ->map(function ($r) {
+                $m = $r->oleh ? Member::find($r->oleh) : null;
+                return [
+                    'aksi' => $r->aksi,
+                    'catatan' => (string)($r->catatan ?? ''),
+                    'oleh' => $m ? $m->name : '',
+                    'waktu' => $r->created_at ? $r->created_at->format('Y-m-d H:i:s') : '',
+                ];
+            })
+            ->values()
+            ->all();
+
+        return response()->json($out);
+    }
+
+    // Order tagging SELESAI di satu desa yang belum pernah dilaporkan —
+    // kandidat isi BTOR untuk pasangan (petugas, desa). punya_foto menandai
+    // order yang fotonya diunggah petugas itu sendiri.
+    public function btororderkandidat(Request $request){
+        $idpetugas = (int)$request->input('idpetugas');
+        $iddesa = (int)$request->input('iddesa');
+        $desa = Desa::find($iddesa);
+        if (!$desa) {
+            return response()->json(['value' => '404', 'pesan' => 'Desa tidak ditemukan'], 404);
+        }
+        if (!Member::find($idpetugas)) {
+            return response()->json(['value' => '404', 'pesan' => 'Petugas tidak ditemukan'], 404);
+        }
+        $rows = DB::table('data_adopsi as a')
+            ->leftJoin(DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'), 'pmin.idpohon', '=', 'a.idpohon')
+            ->leftJoin('data_pohon as p', 'p.id', '=', 'pmin.pmin_id')
+            ->where('a.desa', $desa->nama)
+            ->where('a.proses', 3)
+            ->whereNotIn('a.id', DB::table('btor_order')->select('idadopsi'))
+            ->orderByDesc('a.id')
+            ->limit(500)
+            ->get([
+                'a.id as idadopsi',
+                'a.idpohon',
+                'a.invoice',
+                'a.nama',
+                'a.price',
+                'p.localname',
+                DB::raw('(SELECT COUNT(*) FROM foto_tagging f WHERE f.idadopsi = a.id) as jml_foto'),
+                DB::raw('(SELECT COUNT(*) FROM foto_tagging f2 WHERE f2.idadopsi = a.id AND f2.idmember = ' . $idpetugas . ') > 0 as punya_foto'),
+            ]);
+        return response()->json(collect($rows)->map(function ($r) {
+            return [
+                'idadopsi' => $r->idadopsi,
+                'idpohon' => $r->idpohon,
+                'invoice' => $r->invoice,
+                'donatur' => $r->nama,
+                'price' => (float)$r->price,
+                'localname' => $r->localname ?: $r->idpohon,
+                'jml_foto' => (int)$r->jml_foto,
+                'punya_foto' => (int)$r->punya_foto === 1,
+            ];
+        })->sortByDesc('punya_foto')->values()->all());
+    }
+
+    private function parseRupiah($raw){
+        return (float)str_replace(',', '.', preg_replace('/[^0-9,.]/', '', (string)$raw));
+    }
+
+    public function tambahbtor(Request $request){
+        $idpetugas = (int)$request->input('idpetugas');
+        $iddesa = (int)$request->input('iddesa');
+        $petugas = Member::find($idpetugas);
+        if (!$petugas) {
+            return response()->json(['value' => '404', 'pesan' => 'Petugas tidak ditemukan'], 404);
+        }
+        $desa = Desa::find($iddesa);
+        if (!$desa) {
+            return response()->json(['value' => '404', 'pesan' => 'Desa tidak ditemukan'], 404);
+        }
+        $judul = trim((string)$request->input('judul'));
+        $isi = trim((string)$request->input('isi'));
+        $tanggal = trim((string)$request->input('tanggal')) ?: now()->toDateString();
+        $status = in_array($request->input('status'), ['draft', 'terkirim']) ? $request->input('status') : 'terkirim';
+        $ids = collect((array)$request->input('idorder'))
+            ->map(fn ($v) => (int)$v)
+            ->filter()
+            ->unique()
+            ->values();
+        if ($status === 'terkirim') {
+            if ($judul === '' || $isi === '' || $ids->isEmpty()) {
+                return response()->json(['value' => '400', 'pesan' => 'Judul, catatan kegiatan, dan minimal satu order wajib diisi sebelum dikirim'], 400);
+            }
+        }
+        if ($ids->isNotEmpty()) {
+            $ada = DB::table('data_adopsi')->where('proses', 3)->whereIn('id', $ids)->pluck('id');
+            if ($ada->count() !== $ids->count()) {
+                return response()->json(['value' => '400', 'pesan' => 'Ada order yang tidak valid atau belum selesai ditagging'], 400);
+            }
+            $dipakai = DB::table('btor_order')->whereIn('idadopsi', $ids)->pluck('idadopsi');
+            if ($dipakai->isNotEmpty()) {
+                return response()->json(['value' => '400', 'pesan' => 'Ada order yang sudah masuk BTOR lain'], 400);
+            }
+        }
+
+        $b = new Btor();
+        $b->idpetugas = $idpetugas;
+        $b->iddesa = $iddesa;
+        $b->desa_nama = $desa->nama;
+        $b->judul = $judul !== '' ? $judul : ('BTOR Tagging ' . $desa->nama);
+        $b->tanggal = $tanggal;
+        $b->tanggal_selesai = trim((string)$request->input('tanggal_selesai')) ?: null;
+        $b->isi = $isi !== '' ? $isi : null;
+        $b->dana = $request->filled('dana') && $request->dana !== '' ? $this->parseRupiah($request->dana) : null;
+        $b->hasil = trim((string)$request->input('hasil')) ?: null;
+        $b->jabatan = trim((string)$request->input('jabatan')) ?: null;
+        $b->tim_tagging = trim((string)$request->input('tim_tagging')) ?: null;
+        $b->rekening_at = trim((string)$request->input('rekening_at')) ?: null;
+        $b->rekening_bank = trim((string)$request->input('rekening_bank')) ?: null;
+        $b->rekening_norek = trim((string)$request->input('rekening_norek')) ?: null;
+        $b->status = $status;
+        $b->created_by = (int)$request->input('oleh') ?: null;
+        $b->save();
+        foreach ($ids as $idadopsi) {
+            $o = new BtorOrder();
+            $o->idbtor = $b->id;
+            $o->idadopsi = $idadopsi;
+            $o->save();
+        }
+        if ($status === 'terkirim') {
+            $this->catatRiwayatBtor($b->id, 'dikirim', null, $b->idpetugas);
+        }
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $b->id, 'status' => $status]);
+    }
+
+    public function editbtor(Request $request){
+        $b = Btor::find($request->id);
+        if (!$b) {
+            return response()->json(['value' => '404', 'pesan' => 'BTOR tidak ditemukan'], 404);
+        }
+        $ubahIsi = $request->hasAny(['judul', 'tanggal', 'tanggal_selesai', 'isi', 'dana', 'hasil', 'jabatan', 'tim_tagging', 'rekening_at', 'rekening_bank', 'rekening_norek', 'idorder']);
+        if ($ubahIsi && !in_array($b->status, ['draft', 'revisi'])) {
+            return response()->json(['value' => '400', 'pesan' => 'BTOR yang sudah terkirim/disetujui tidak bisa diubah isinya'], 400);
+        }
+        if ($request->has('judul')) $b->judul = trim((string)$request->input('judul')) ?: $b->judul;
+        if ($request->has('tanggal')) $b->tanggal = trim((string)$request->input('tanggal')) ?: $b->tanggal;
+        if ($request->has('tanggal_selesai')) $b->tanggal_selesai = trim((string)$request->input('tanggal_selesai')) ?: null;
+        if ($request->has('isi')) $b->isi = trim((string)$request->input('isi')) ?: null;
+        if ($request->has('dana')) {
+            $b->dana = $request->filled('dana') && $request->dana !== '' ? $this->parseRupiah($request->dana) : null;
+        }
+        if ($request->has('hasil')) $b->hasil = trim((string)$request->input('hasil')) ?: null;
+        if ($request->has('jabatan')) $b->jabatan = trim((string)$request->input('jabatan')) ?: null;
+        if ($request->has('tim_tagging')) $b->tim_tagging = trim((string)$request->input('tim_tagging')) ?: null;
+        if ($request->has('rekening_at')) $b->rekening_at = trim((string)$request->input('rekening_at')) ?: null;
+        if ($request->has('rekening_bank')) $b->rekening_bank = trim((string)$request->input('rekening_bank')) ?: null;
+        if ($request->has('rekening_norek')) $b->rekening_norek = trim((string)$request->input('rekening_norek')) ?: null;
+        if ($request->has('idorder')) {
+            $ids = collect((array)$request->input('idorder'))
+                ->map(fn ($v) => (int)$v)
+                ->filter()
+                ->unique()
+                ->values();
+            if ($ids->isNotEmpty()) {
+                $ada = DB::table('data_adopsi')->where('proses', 3)->whereIn('id', $ids)->pluck('id');
+                if ($ada->count() !== $ids->count()) {
+                    return response()->json(['value' => '400', 'pesan' => 'Ada order yang tidak valid atau belum selesai ditagging'], 400);
+                }
+                $dipakai = DB::table('btor_order')->where('idbtor', '!=', $b->id)->whereIn('idadopsi', $ids)->pluck('idadopsi');
+                if ($dipakai->isNotEmpty()) {
+                    return response()->json(['value' => '400', 'pesan' => 'Ada order yang sudah masuk BTOR lain'], 400);
+                }
+            }
+            BtorOrder::where('idbtor', $b->id)->delete();
+            foreach ($ids as $idadopsi) {
+                $o = new BtorOrder();
+                $o->idbtor = $b->id;
+                $o->idadopsi = $idadopsi;
+                $o->save();
+            }
+        }
+        if ($request->has('status')) {
+            $status = trim((string)$request->input('status'));
+            if (!in_array($status, ['draft', 'terkirim'])) {
+                return response()->json(['value' => '400', 'pesan' => 'Status tidak valid'], 400);
+            }
+            if ($status === 'terkirim' && $b->status !== 'terkirim' && $b->status !== 'disetujui') {
+                if (trim((string)$b->judul) === '' || trim((string)$b->isi) === '' || BtorOrder::where('idbtor', $b->id)->count() === 0) {
+                    return response()->json(['value' => '400', 'pesan' => 'Judul, catatan kegiatan, dan minimal satu order wajib diisi sebelum dikirim'], 400);
+                }
+                $b->catatan_revisi = null;
+                $this->catatRiwayatBtor($b->id, 'dikirim', null, $b->idpetugas);
+            }
+            $b->status = $status;
+        }
+        $b->save();
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'status' => $b->status]);
+    }
+
+    public function hapusbtor(Request $request){
+        $b = Btor::find($request->id);
+        if (!$b) {
+            return response()->json(['value' => '404', 'pesan' => 'BTOR tidak ditemukan'], 404);
+        }
+        // urutan penting: btor_order wajib bersih agar UNIQUE idadopsi lepas
+        BtorOrder::where('idbtor', $b->id)->delete();
+        BtorMemo::where('idbtor', $b->id)->delete();
+        BtorRiwayat::where('idbtor', $b->id)->delete();
+        $b->delete();
+        return response()->json(['value' => '200', 'pesan' => 'Success']);
+    }
+
+    public function approvebtor(Request $request){
+        $b = Btor::find($request->id);
+        if (!$b) {
+            return response()->json(['value' => '404', 'pesan' => 'BTOR tidak ditemukan'], 404);
+        }
+        if ($b->status === 'disetujui') {
+            return response()->json(['value' => '200', 'pesan' => 'Success', 'status' => $b->status]);
+        }
+        if ($b->status !== 'terkirim') {
+            return response()->json(['value' => '400', 'pesan' => 'Hanya BTOR terkirim yang bisa diverifikasi'], 400);
+        }
+        if (BtorOrder::where('idbtor', $b->id)->count() === 0) {
+            return response()->json(['value' => '400', 'pesan' => 'BTOR belum memuat order tagging'], 400);
+        }
+        if (((float)$b->dana) <= 0) {
+            return response()->json(['value' => '400', 'pesan' => 'Dana BTOR belum diisi'], 400);
+        }
+        if (trim((string)$b->isi) === '') {
+            return response()->json(['value' => '400', 'pesan' => 'Catatan kegiatan belum diisi'], 400);
+        }
+        $b->status = 'disetujui';
+        $b->save();
+        $this->catatRiwayatBtor($b->id, 'verifikasi', null, (int)$request->input('oleh') ?: null);
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'status' => $b->status]);
+    }
+
+    public function revisibtor(Request $request){
+        $b = Btor::find($request->id);
+        if (!$b) {
+            return response()->json(['value' => '404', 'pesan' => 'BTOR tidak ditemukan'], 404);
+        }
+        if ($b->status === 'disetujui') {
+            return response()->json(['value' => '400', 'pesan' => 'BTOR sudah diverifikasi dan tidak bisa diminta revisi'], 400);
+        }
+        $catatan = trim((string)$request->input('catatan'));
+        if ($catatan === '') {
+            return response()->json(['value' => '400', 'pesan' => 'Catatan revisi wajib diisi'], 400);
+        }
+        $b->status = 'revisi';
+        $b->catatan_revisi = $catatan;
+        $b->save();
+        $this->catatRiwayatBtor($b->id, 'revisi', $catatan, (int)$request->input('oleh') ?: null);
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'status' => $b->status]);
+    }
+
+    // Terbitkan Memo Pencairan memorandum (format dari/kepada/proyek/isi) —
+    // hanya untuk BTOR terverifikasi.
+    public function tambahmemobtor(Request $request){
+        $b = Btor::find($request->input('idbtor'));
+        if (!$b) {
+            return response()->json(['value' => '404', 'pesan' => 'BTOR tidak ditemukan'], 404);
+        }
+        if ($b->status !== 'disetujui') {
+            return response()->json(['value' => '400', 'pesan' => 'BTOR harus diverifikasi dulu sebelum memo diterbitkan'], 400);
+        }
+        if (BtorMemo::where('idbtor', $b->id)->exists()) {
+            return response()->json(['value' => '400', 'pesan' => 'Memo untuk BTOR ini sudah diterbitkan'], 400);
+        }
+        $jumlah = $this->parseRupiah($request->input('jumlah'));
+        if ($jumlah <= 0) {
+            return response()->json(['value' => '400', 'pesan' => 'Jumlah dana tidak valid'], 400);
+        }
+        $penerima = trim((string)$request->input('penerima'));
+        if ($penerima === '') {
+            return response()->json(['value' => '400', 'pesan' => 'Penerima dana wajib diisi'], 400);
+        }
+        $tanggal = trim((string)$request->input('tanggal')) ?: now()->toDateString();
+        $statusPencairan = trim((string)$request->input('status_pencairan')) ?: 'menunggu';
+        if (!in_array($statusPencairan, ['menunggu', 'diproses', 'dicairkan'])) {
+            return response()->json(['value' => '400', 'pesan' => 'Status pencairan tidak valid'], 400);
+        }
+
+        $m = new BtorMemo();
+        $m->idbtor = $b->id;
+        $m->nomor = 'TEMP-' . uniqid();
+        $m->tanggal = $tanggal;
+        $m->dari = trim((string)$request->input('dari')) ?: null;
+        $m->kepada = trim((string)$request->input('kepada')) ?: null;
+        $m->proyek = trim((string)$request->input('proyek')) ?: null;
+        $m->isi = trim((string)$request->input('isi')) ?: null;
+        $m->jumlah = $jumlah;
+        $m->penerima = $penerima;
+        $m->bank = trim((string)$request->input('bank')) ?: null;
+        $m->norek = trim((string)$request->input('norek')) ?: null;
+        $m->keperluan = trim((string)$request->input('keperluan')) ?: null;
+        $m->ttd_nama = trim((string)$request->input('ttd_nama')) ?: null;
+        $m->ttd_jabatan = trim((string)$request->input('ttd_jabatan')) ?: null;
+        $m->status_pencairan = $statusPencairan;
+        $m->catatan_pencairan = trim((string)$request->input('catatan_pencairan')) ?: null;
+        $m->created_by = (int)$request->input('oleh') ?: null;
+        $m->save();
+        // Nomor final memakai id baris → dijamin unik tanpa race count.
+        $m->nomor = 'MEMO/' . date('Y', strtotime($tanggal)) . '/' . str_pad((string)$m->id, 4, '0', STR_PAD_LEFT);
+        $m->save();
+
+        $this->catatRiwayatBtor($b->id, 'memo', $m->nomor, (int)$request->input('oleh') ?: null);
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'id' => $m->id, 'nomor' => $m->nomor]);
+    }
+
+    public function editmemobtor(Request $request){
+        $m = BtorMemo::find($request->id);
+        if (!$m) {
+            return response()->json(['value' => '404', 'pesan' => 'Memo tidak ditemukan'], 404);
+        }
+        if ($request->filled('tanggal')) $m->tanggal = trim((string)$request->input('tanggal'));
+        if ($request->has('dari')) $m->dari = trim((string)$request->input('dari')) ?: null;
+        if ($request->has('kepada')) $m->kepada = trim((string)$request->input('kepada')) ?: null;
+        if ($request->has('proyek')) $m->proyek = trim((string)$request->input('proyek')) ?: null;
+        if ($request->has('isi')) $m->isi = trim((string)$request->input('isi')) ?: null;
+        if ($request->has('jumlah')) {
+            $jumlah = $request->filled('jumlah') ? $this->parseRupiah($request->input('jumlah')) : $m->jumlah;
+            if ($jumlah <= 0) {
+                return response()->json(['value' => '400', 'pesan' => 'Jumlah dana tidak valid'], 400);
+            }
+            $m->jumlah = $jumlah;
+        }
+        if ($request->filled('penerima')) $m->penerima = trim((string)$request->input('penerima'));
+        if ($request->has('bank')) $m->bank = trim((string)$request->input('bank')) ?: null;
+        if ($request->has('norek')) $m->norek = trim((string)$request->input('norek')) ?: null;
+        if ($request->has('keperluan')) $m->keperluan = trim((string)$request->input('keperluan')) ?: null;
+        if ($request->has('ttd_nama')) $m->ttd_nama = trim((string)$request->input('ttd_nama')) ?: null;
+        if ($request->has('ttd_jabatan')) $m->ttd_jabatan = trim((string)$request->input('ttd_jabatan')) ?: null;
+        if ($request->has('catatan_pencairan')) $m->catatan_pencairan = trim((string)$request->input('catatan_pencairan')) ?: null;
+        if ($request->filled('status_pencairan')) {
+            $statusPencairan = trim((string)$request->input('status_pencairan'));
+            if (!in_array($statusPencairan, ['menunggu', 'diproses', 'dicairkan'])) {
+                return response()->json(['value' => '400', 'pesan' => 'Status pencairan tidak valid'], 400);
+            }
+            if ($statusPencairan !== $m->status_pencairan) {
+                $m->status_pencairan = $statusPencairan;
+                $this->catatRiwayatBtor($m->idbtor, 'pencairan', $statusPencairan, (int)$request->input('oleh') ?: null);
+            }
+        }
+        $m->save();
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'status_pencairan' => $m->status_pencairan]);
     }
 
     // ===================== Pencatatan Keuangan (pembayaran pohon tagging) =====================
