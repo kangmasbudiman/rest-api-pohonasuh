@@ -21,6 +21,7 @@ use App\Models\Slider;
 use App\Models\Desa;
 use App\Models\Pohon;
 use App\Models\Rekening;
+use App\Models\Role;
 use App\Models\Tobasket;
 use App\Models\Noadmin;
 use App\Models\Dataadopsi;
@@ -510,9 +511,99 @@ public function pohonmapdesa(Request $request){
 // Daftar seluruh member utk kelola user di web admin.
 public function getmembers(){
     $members=Member::orderByDesc('id')
-        ->get(['id', 'name', 'emaile', 'hp', 'admin', 'aktif', 'tanggal', 'address']);
+        ->get(['id', 'name', 'emaile', 'hp', 'admin', 'idrole', 'aktif', 'tanggal', 'address']);
 
     return response()->json($members);
+}
+
+// ===== Kelola Role & Izin (web admin) =====
+// Izin yang dikenal backend — selaras dengan IZIN di web (src/lib/hak.ts).
+private function izinValid(): array {
+    return ['memo'];
+}
+
+public function rolelist(){
+    $roles=Role::orderBy('nama')->get();
+    $jumlah=Member::whereNotNull('idrole')
+        ->selectRaw('idrole, COUNT(*) n')
+        ->groupBy('idrole')
+        ->pluck('n', 'idrole');
+
+    return response()->json($roles->map(function ($r) use ($jumlah) {
+        return [
+            'id'=>$r->id,
+            'nama'=>$r->nama,
+            'izin'=>$r->izin ?? [],
+            'jumlah'=>(int)($jumlah[$r->id] ?? 0),
+        ];
+    })->values());
+}
+
+public function tambahrole(Request $request){
+    $nama=trim((string)$request->input('nama'));
+    $izin=(array)$request->input('izin', []);
+    if ($nama === '') {
+        return response()->json(['value'=>'400','pesan'=>'Nama role wajib diisi'], 400);
+    }
+    if (Role::where('nama', $nama)->exists()) {
+        return response()->json(['value'=>'409','pesan'=>'Nama role sudah dipakai'], 409);
+    }
+    Role::create([
+        'nama'=>$nama,
+        'izin'=>array_values(array_intersect($this->izinValid(), $izin)),
+    ]);
+    return response()->json(['value'=>'200','pesan'=>'Role ditambahkan']);
+}
+
+public function editrole(Request $request){
+    $id=(int)$request->input('id');
+    $nama=trim((string)$request->input('nama'));
+    $izin=(array)$request->input('izin', []);
+    $role=Role::find($id);
+    if (!$role) {
+        return response()->json(['value'=>'404','pesan'=>'Role tidak ditemukan'], 404);
+    }
+    if ($nama === '') {
+        return response()->json(['value'=>'400','pesan'=>'Nama role wajib diisi'], 400);
+    }
+    if (Role::where('nama', $nama)->where('id', '!=', $id)->exists()) {
+        return response()->json(['value'=>'409','pesan'=>'Nama role sudah dipakai'], 409);
+    }
+    $role->nama=$nama;
+    $role->izin=array_values(array_intersect($this->izinValid(), $izin));
+    $role->save();
+    return response()->json(['value'=>'200','pesan'=>'Role diperbarui']);
+}
+
+public function hapusrole(Request $request){
+    $id=(int)$request->input('id');
+    $role=Role::find($id);
+    if (!$role) {
+        return response()->json(['value'=>'404','pesan'=>'Role tidak ditemukan'], 404);
+    }
+    Member::where('idrole', $id)->update(['idrole'=>null]);
+    $role->delete();
+    return response()->json(['value'=>'200','pesan'=>'Role dihapus']);
+}
+
+public function setmemberrole(Request $request){
+    $idmember=(int)$request->input('idmember');
+    $idrole=$request->input('idrole'); // '' / null = lepas role
+    $member=Member::find($idmember);
+    if (!$member) {
+        return response()->json(['value'=>'404','pesan'=>'Member tidak ditemukan'], 404);
+    }
+    if ($idrole === null || $idrole === '') {
+        $member->idrole=null;
+    } else {
+        $idrole=(int)$idrole;
+        if (!Role::find($idrole)) {
+            return response()->json(['value'=>'404','pesan'=>'Role tidak ditemukan'], 404);
+        }
+        $member->idrole=$idrole;
+    }
+    $member->save();
+    return response()->json(['value'=>'200','pesan'=>'Role member diperbarui']);
 }
 
 // Aktifkan / nonaktifkan member (login ditolak bila aktif=0).
@@ -5340,6 +5431,7 @@ public function confirmasipembayaran(Request $request){
                       'name' => $ceklogin->name,
                       'id' => $ceklogin->id,
                       'admin' => $ceklogin->admin,
+                      'hak' => $ceklogin->idrole ? (optional(Role::find($ceklogin->idrole))->izin ?: []) : [],
                       'foto' => $ceklogin->foto ?: '',
                     ]);
                         }
@@ -5401,6 +5493,7 @@ public function confirmasipembayaran(Request $request){
                       'name' => $ceklogin->name,
                       'id' => $ceklogin->id,
                       'admin' => $ceklogin->admin,
+                      'hak' => $ceklogin->idrole ? (optional(Role::find($ceklogin->idrole))->izin ?: []) : [],
                       'foto' => $ceklogin->foto ?: '',
                     ]);
                         }
