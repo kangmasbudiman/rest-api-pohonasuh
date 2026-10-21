@@ -260,6 +260,7 @@ class ApiController extends Controller
     
     
 public function addfototaging(Request $request){
+    if($r = $this->guardAccTagging($request->input('idadopsi'))) return $r;
 
     $data=new Fototaging();
 
@@ -286,6 +287,7 @@ public function uploadfototaging(Request $request){
             'pesan'=>'No file uploaded',
         ], 400);
     }
+    if($r = $this->guardAccTagging($request->input('idadopsi'))) return $r;
 
     $file=$request->file('image');
     $name_file='taging_'.time().'_'.strtoupper(substr(md5(uniqid(rand(), true)), 0, 6)).'.'.$file->getClientOriginalExtension();
@@ -1340,6 +1342,7 @@ public function allcertificate(){
   }
     
   public function updatenoted(Request $request){
+   if($r = $this->guardAccTagging($request->idorder)) return $r;
    $data=Detailimage::where('idorder',$request->idorder)->get();
    if(count($data)>0){
     foreach ($data as $k) {
@@ -2697,11 +2700,11 @@ public function confirmasipembayaran(Request $request){
 
 
   public function updatestatuscomplate(Request $request){
-   
+
     $id=$request->id;
     $idpohon=$request->idpohon;
-    
-      
+
+    if($r = $this->guardAccTagging($id)) return $r;
 
       $data=Dataadopsi::find($id);
     $statuspohon=Pohon::where('idpohon',$idpohon)->first();
@@ -2797,24 +2800,65 @@ public function confirmasipembayaran(Request $request){
 
 
 
+  // Guard alur tagging baru: catatan/foto tagging + "Tandai Selesai" hanya
+  // boleh setelah permintaan "Mulai Proses" di-acc admin (acctaging).
+  // Return response 404/409 bila belum — null bila boleh lanjut.
+  private function guardAccTagging($idadopsi){
+    $data=Dataadopsi::find($idadopsi);
+    if(!$data){
+      return response()->json([
+        'value' =>404,
+        'pesan' =>"Data adopsi tidak ditemukan"
+      ]);
+    }
+    if((int)$data->proses !== 2 || (int)$data->acc_tagging !== 1){
+      return response()->json([
+        'value' =>409,
+        'pesan' =>"Order menunggu persetujuan admin"
+      ]);
+    }
+    return null;
+  }
+
+  // "Mulai Proses" petugas (alur tagging baru): order masuk Di Proses sebagai
+  // PERMINTAAN (acc_tagging=0) — admin dinotifikasi untuk acc. Notifikasi
+  // donatur dipindah ke momen acc (acctaging) karena tagging belum benar2
+  // dimulai sebelum disetujui.
   public function updatestatusproses(Request $request){
-   
+
     $id=$request->id;
     $data=Dataadopsi::find($id);
-    
-        $data1=new Pesan();
-        $data1->idmember=$data->pengasuh;
-        $data1->pesan="Pohon Anda Sedang Dalam Proses Taging";
-        $data1->status="noread";
-        $data1->save();
-        $this->kirimPush($data->pengasuh, 'Proses Taging', 'Pohon Anda Sedang Dalam Proses Taging');
-    
-    
+    if(!$data){
+      return response()->json([
+        'value' =>404,
+        'pesan' =>"Data adopsi tidak ditemukan"
+      ]);
+    }
+    if((int)$data->proses !== 1){
+      return response()->json([
+        'value' =>409,
+        'pesan' =>"Order tidak berstatus Baru"
+      ]);
+    }
+
     $data->proses=2;
+    $data->acc_tagging=0;
+    $data->acc_by=null;
     $data->update();
+
+    foreach (Member::where('admin',1)->get() as $k) {
+        $isip = "Permintaan proses tagging pohon {$data->idpohon} (invoice {$data->invoice}) dari desa {$data->desa} menunggu persetujuan";
+        $pesan = new Pesan();
+        $pesan->idmember = $k->id;
+        $pesan->pesan = $isip;
+        $pesan->status = "noread";
+        $pesan->save();
+        $this->kirimPush($k->id, 'Permintaan Tagging', $isip);
+    }
+
     return response()->json([
       'value' =>"200",
-      'message'=>"Update Status"
+      'pesan'=>"Permintaan proses tagging dikirim — menunggu persetujuan admin"
     ]);
 
   }
@@ -2839,10 +2883,94 @@ public function confirmasipembayaran(Request $request){
     }
     Fototaging::where('idadopsi',$data->id)->delete();
     $data->proses=1;
+    $data->acc_tagging=0;
+    $data->acc_by=null;
     $data->update();
     return response()->json([
       'value' =>"200",
       'pesan' =>"Proses tagging dibatalkan, order kembali ke daftar Baru"
+    ]);
+  }
+
+  // Acc/tolak PERMINTAAN "Mulai Proses" petugas (alur tagging baru).
+  // acc   → form catatan + upload foto terbuka bagi petugas; donatur diberi
+  //         tahu tagging dimulai; petugas desa diberi tahu disetujui.
+  // tolak → order kembali ke daftar Baru (petugas bisa mengajukan ulang).
+  public function acctaging(Request $request){
+    $data=Dataadopsi::find($request->id);
+    if(!$data){
+      return response()->json([
+        'value' =>404,
+        'pesan' =>"Data adopsi tidak ditemukan"
+      ]);
+    }
+    if((int)$data->proses !== 2 || (int)$data->acc_tagging !== 0){
+      return response()->json([
+        'value' =>409,
+        'pesan' =>"Tidak ada permintaan tagging yang menunggu persetujuan untuk order ini"
+      ]);
+    }
+
+    // Pesan ke semua petugas desa order ini (pola sendNotifkepengurus).
+    $desa=Desa::where('nama',$data->desa)->first();
+    $petugas=$desa ? DesaPetugas::where('iddesa',$desa->id)->get() : collect();
+
+    if($request->aksi === 'acc'){
+      $data->acc_tagging=1;
+      $data->acc_by=$request->oleh;
+      $data->update();
+
+      $data1=new Pesan();
+      $data1->idmember=$data->pengasuh;
+      $data1->pesan="Pohon Anda Sedang Dalam Proses Taging";
+      $data1->status="noread";
+      $data1->save();
+      $this->kirimPush($data->pengasuh, 'Proses Taging', 'Pohon Anda Sedang Dalam Proses Taging');
+
+      foreach ($petugas as $p) {
+        $isip="Permintaan tagging pohon {$data->idpohon} DISETUJUI admin — silakan unggah foto tagging dan tandai selesai";
+        $pesan=new Pesan();
+        $pesan->idmember=$p->idpetugas;
+        $pesan->pesan=$isip;
+        $pesan->status="noread";
+        $pesan->save();
+        $this->kirimPush($p->idpetugas, 'Permintaan Tagging', $isip);
+      }
+
+      return response()->json([
+        'value' =>"200",
+        'pesan' =>"Permintaan tagging disetujui"
+      ]);
+    }
+
+    Fototaging::where('idadopsi',$data->id)->delete();
+    $data->proses=1;
+    $data->acc_tagging=0;
+    $data->acc_by=null;
+    $data->update();
+
+    foreach ($petugas as $p) {
+      $isip="Permintaan tagging pohon {$data->idpohon} DITOLAK admin — order kembali ke daftar Baru";
+      $pesan=new Pesan();
+      $pesan->idmember=$p->idpetugas;
+      $pesan->pesan=$isip;
+      $pesan->status="noread";
+      $pesan->save();
+      $this->kirimPush($p->idpetugas, 'Permintaan Tagging', $isip);
+    }
+
+    return response()->json([
+      'value' =>"200",
+      'pesan' =>"Permintaan tagging ditolak — order kembali ke daftar Baru"
+    ]);
+  }
+
+  // Badge menu Order Tagging admin: jumlah permintaan menunggu acc.
+  public function permintaantaggingcount(){
+    $jumlah=Dataadopsi::where('proses',2)->where('acc_tagging',0)->count();
+    return response()->json([
+      'value' =>"200",
+      'jumlah' =>$jumlah
     ]);
   }
 
@@ -2868,6 +2996,7 @@ public function confirmasipembayaran(Request $request){
             data_adopsi.memo,
             data_adopsi.admin,
             data_adopsi.proses,
+            data_adopsi.acc_tagging,
             data_adopsi.invoice,
             data_pohon.localname,
             data_pohon.foto_pohon,
@@ -2931,6 +3060,7 @@ public function confirmasipembayaran(Request $request){
                 'memo' => $k->memo,
                 'admin' => $k->admin,
                 'proses' => $k->proses,
+                'acc' => (int) $k->acc_tagging,
                 'invoice' => $k->invoice,
                 'confirmasi' => $confirm,
                 'confirmasiBy' => $confirmBy,
@@ -3023,6 +3153,7 @@ public function confirmasipembayaran(Request $request){
         $b['memo']=$k->memo;
         $b['admin']=$k->admin;
         $b['proses']=$k->proses;
+        $b['acc']=(int)$k->acc_tagging;
         $b['invoice']=$k->invoice;
        
        

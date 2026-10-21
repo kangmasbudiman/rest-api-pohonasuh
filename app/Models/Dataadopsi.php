@@ -11,7 +11,7 @@ class Dataadopsi extends Model
     protected $guarded = ['id'];
 
     protected $table='data_adopsi';
-    protected $fillable=['idpohon','desa','pengasuh','price','cur','methode','tgl_adopt','gfrom','certnum','dur','memo','admin','proses','invoice'];
+    protected $fillable=['idpohon','desa','pengasuh','price','cur','methode','tgl_adopt','gfrom','certnum','dur','memo','admin','proses','acc_tagging','acc_by','invoice'];
     protected $primaryKey='id';
 
 
