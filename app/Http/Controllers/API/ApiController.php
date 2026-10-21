@@ -6329,6 +6329,9 @@ public function confirmasipembayaran(Request $request){
     public function btororderkandidat(Request $request){
         $idpetugas = (int)$request->input('idpetugas');
         $iddesa = (int)$request->input('iddesa');
+        // Saat edit BTOR, order milik BTOR itu sendiri tetap tampil di
+        // checklist (yang dikecualikan hanya order BTOR lain).
+        $idbtor = (int)$request->input('idbtor') ?: 0;
         $desa = Desa::find($iddesa);
         if (!$desa) {
             return response()->json(['value' => '404', 'pesan' => 'Desa tidak ditemukan'], 404);
@@ -6341,7 +6344,10 @@ public function confirmasipembayaran(Request $request){
             ->leftJoin('data_pohon as p', 'p.id', '=', 'pmin.pmin_id')
             ->where('a.desa', $desa->nama)
             ->where('a.proses', 3)
-            ->whereNotIn('a.id', DB::table('btor_order')->select('idadopsi'))
+            ->whereNotIn('a.id', function ($q) use ($idbtor) {
+                $q->select('idadopsi')->from('btor_order');
+                if ($idbtor) $q->where('idbtor', '!=', $idbtor);
+            })
             ->orderByDesc('a.id')
             ->limit(500)
             ->get([
