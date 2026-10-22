@@ -1130,7 +1130,7 @@ public function allcertificate(){
     $data->update();
     
      $data=new Pesan();
-        $data->idmember=$data->pengasuh;
+        $data->idmember=$iduser;
         $data->pesan="Pohon Anda Sedang Dalam Proses Taging";
         $data->status="noread";
         $data->save();
@@ -1435,7 +1435,7 @@ public function allcertificate(){
         }else{
           return response()->json(
             [
-              'message'=> "Data dengan ID = $id Tidak Ditemukan",
+              'message'=> "Data dengan ID = $request->id Tidak Ditemukan",
               'code'=>404
             ]
             );
@@ -2504,7 +2504,7 @@ public function confirmasipembayaran(Request $request){
         }else{
           return response()->json(
             [
-              'message'=> "Data dengan ID = $id Tidak Ditemukan",
+              'message'=> "Data dengan ID = $request->id Tidak Ditemukan",
               'code'=>404
             ]
             );
@@ -5707,7 +5707,7 @@ public function confirmasipembayaran(Request $request){
     }else{
       return response()->json(
         [
-          'message'=> "Data dengan ID = $id Tidak Ditemukan",
+          'message'=> "Data dengan ID = $request->id Tidak Ditemukan",
           'code'=>404
         ]
         );
