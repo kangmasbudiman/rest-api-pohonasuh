@@ -6368,6 +6368,7 @@ public function confirmasipembayaran(Request $request){
             'ttd_jabatan' => (string)($m->ttd_jabatan ?? ''),
             'status_pencairan' => $m->status_pencairan ?: 'menunggu',
             'catatan_pencairan' => (string)($m->catatan_pencairan ?? ''),
+            'bukti_pencairan' => (string)($m->bukti_pencairan ?? ''),
             'created_at' => $m->created_at ? $m->created_at->format('Y-m-d H:i:s') : '',
         ];
     }
@@ -6656,6 +6657,12 @@ public function confirmasipembayaran(Request $request){
         }
         // urutan penting: btor_order wajib bersih agar UNIQUE idadopsi lepas
         BtorOrder::where('idbtor', $b->id)->delete();
+        foreach (BtorMemo::where('idbtor', $b->id)->get() as $mm) {
+            if (!empty($mm->bukti_pencairan)) {
+                $path = base_path('public/upload/memo/' . basename($mm->bukti_pencairan));
+                if (is_file($path)) @unlink($path);
+            }
+        }
         BtorMemo::where('idbtor', $b->id)->delete();
         BtorRiwayat::where('idbtor', $b->id)->delete();
         $b->delete();
@@ -6805,6 +6812,35 @@ public function confirmasipembayaran(Request $request){
         }
         $m->save();
         return response()->json(['value' => '200', 'pesan' => 'Success', 'status_pencairan' => $m->status_pencairan]);
+    }
+
+    // Unggah bukti transfer pencairan dana memo (khusus role ber-izin memo).
+    // Satu memo satu bukti; mengunggah ulang mengganti file lama.
+    public function uploadbuktimemo(Request $request){
+        $olehMemo = (int)$request->input('oleh') ?: null;
+        if (!$olehMemo || !in_array('memo', $this->izinMember($olehMemo), true)) {
+            return response()->json(['value' => '403', 'pesan' => 'Tidak punya izin memo'], 403);
+        }
+        $m = BtorMemo::find($request->id);
+        if (!$m) {
+            return response()->json(['value' => '404', 'pesan' => 'Memo tidak ditemukan'], 404);
+        }
+        if (!$request->hasFile('foto')) {
+            return response()->json(['value' => '400', 'pesan' => 'File bukti wajib diisi'], 400);
+        }
+        [$url, $err] = $this->prosesUploadFoto($request, 'memo', 'id');
+        if ($err) return $err;
+        if ($url === null) {
+            return response()->json(['value' => '400', 'pesan' => 'File bukti wajib diisi'], 400);
+        }
+        if (!empty($m->bukti_pencairan)) {
+            $lama = base_path('public/upload/memo/' . basename($m->bukti_pencairan));
+            if (is_file($lama)) @unlink($lama);
+        }
+        $m->bukti_pencairan = $url;
+        $m->save();
+        $this->catatRiwayatBtor($m->idbtor, 'bukti', $m->nomor, $olehMemo);
+        return response()->json(['value' => '200', 'pesan' => 'Success', 'url' => $url]);
     }
 
     // ===================== Pencatatan Keuangan (pembayaran pohon tagging) =====================

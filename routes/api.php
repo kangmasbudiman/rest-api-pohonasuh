@@ -204,6 +204,7 @@ Route::post('approvebtor', [ApiController::class, 'approvebtor']);
 Route::post('revisibtor', [ApiController::class, 'revisibtor']);
 Route::post('tambahmemobtor', [ApiController::class, 'tambahmemobtor']);
 Route::post('editmemobtor', [ApiController::class, 'editmemobtor']);
+Route::post('uploadbuktimemo', [ApiController::class, 'uploadbuktimemo']);
 Route::get('rolelist', [ApiController::class, 'rolelist']);
 Route::post('tambahrole', [ApiController::class, 'tambahrole']);
 Route::post('editrole', [ApiController::class, 'editrole']);
