@@ -525,6 +525,16 @@ private function izinValid(): array {
     return ['memo'];
 }
 
+// Izin member segar dari role di DB — dipakai endpoint memo agar pencabutan
+// role langsung berlaku tanpa menunggu session web diperbarui. Level admin
+// TIDAK dianggap otomatis ber-izin: memo murni berbasis role.
+private function izinMember(int $idMember): array {
+    $m = Member::find($idMember);
+    if (!$m || !$m->idrole) return [];
+    $r = Role::find($m->idrole);
+    return $r && is_array($r->izin) ? $r->izin : [];
+}
+
 public function rolelist(){
     $roles=Role::orderBy('nama')->get();
     $jumlah=Member::whereNotNull('idrole')
@@ -6700,6 +6710,10 @@ public function confirmasipembayaran(Request $request){
     // Terbitkan Memo Pencairan memorandum (format dari/kepada/proyek/isi) —
     // hanya untuk BTOR terverifikasi.
     public function tambahmemobtor(Request $request){
+        $olehMemo = (int)$request->input('oleh') ?: null;
+        if (!$olehMemo || !in_array('memo', $this->izinMember($olehMemo), true)) {
+            return response()->json(['value' => '403', 'pesan' => 'Tidak punya izin menerbitkan memo'], 403);
+        }
         $b = Btor::find($request->input('idbtor'));
         if (!$b) {
             return response()->json(['value' => '404', 'pesan' => 'BTOR tidak ditemukan'], 404);
@@ -6752,6 +6766,10 @@ public function confirmasipembayaran(Request $request){
     }
 
     public function editmemobtor(Request $request){
+        $olehMemo = (int)$request->input('oleh') ?: null;
+        if (!$olehMemo || !in_array('memo', $this->izinMember($olehMemo), true)) {
+            return response()->json(['value' => '403', 'pesan' => 'Tidak punya izin memo'], 403);
+        }
         $m = BtorMemo::find($request->id);
         if (!$m) {
             return response()->json(['value' => '404', 'pesan' => 'Memo tidak ditemukan'], 404);
