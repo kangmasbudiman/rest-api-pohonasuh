@@ -619,6 +619,77 @@ public function setmemberrole(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Role member diperbarui']);
 }
 
+// Buat akun member dari web admin (Kelola User) — utamanya akun petugas.
+// Password memakai skema login lama md5(sha1()) agar bisa dipakai login
+// web & aplikasi mobile.
+public function tambahmember(Request $request){
+    $name = trim((string)$request->input('name'));
+    $emaile = trim((string)$request->input('emaile'));
+    $hp = trim((string)$request->input('hp'));
+    $passe = (string)$request->input('passe');
+    $admin = $request->input('admin', 2);
+    $admin = ($admin === '' || $admin === null) ? 2 : (int)$admin;
+
+    if ($name === '' || $emaile === '' || $passe === '') {
+        return response()->json(['value'=>'400','pesan'=>'Nama, email, dan password wajib diisi'], 400);
+    }
+    if (!filter_var($emaile, FILTER_VALIDATE_EMAIL)) {
+        return response()->json(['value'=>'400','pesan'=>'Format email tidak valid'], 400);
+    }
+    if (strlen($passe) < 6) {
+        return response()->json(['value'=>'400','pesan'=>'Password minimal 6 karakter'], 400);
+    }
+    if (!in_array($admin, [0, 1, 2], true)) {
+        return response()->json(['value'=>'400','pesan'=>'Peran tidak valid'], 400);
+    }
+    if (Member::where('emaile', $emaile)->exists()) {
+        return response()->json(['value'=>'409','pesan'=>'Email sudah terdaftar'], 409);
+    }
+
+    $m = new Member();
+    $m->tanggal = date('Y-m-d');
+    $m->name = $name;
+    $m->emaile = $emaile;
+    $m->hp = $hp;
+    $m->passe = md5(sha1($passe));
+    $m->count = 0;
+    $m->admin = $admin;
+    $m->confirmed = 'yes';
+    $m->tampil = 'yes';
+    $m->status = 'Member';
+    $m->mati = 0;
+    $m->coba = 0;
+    $m->kode = '';
+    $m->foto = '';
+    $m->tentang = '';
+    $m->job = '';
+    $m->id_token = '';
+    $m->save();
+
+    return response()->json(['value'=>'200','pesan'=>'Akun dibuat','id'=>$m->id]);
+}
+
+// Ubah peran member (0 donatur, 1 admin, 2 petugas) dari web admin.
+public function setmemberadmin(Request $request){
+    $idmember = (int)$request->input('idmember');
+    $idadmin = (int)$request->input('idadmin');
+    $admin = (int)$request->input('admin');
+
+    if (!in_array($admin, [0, 1, 2], true)) {
+        return response()->json(['value'=>'400','pesan'=>'Peran tidak valid'], 400);
+    }
+    if ($idmember === $idadmin) {
+        return response()->json(['value'=>'400','pesan'=>'Tidak dapat mengubah peran akun sendiri'], 400);
+    }
+    $member = Member::find($idmember);
+    if (!$member) {
+        return response()->json(['value'=>'404','pesan'=>'Member tidak ditemukan'], 404);
+    }
+    $member->admin = $admin;
+    $member->save();
+    return response()->json(['value'=>'200','pesan'=>'Peran member diperbarui']);
+}
+
 // Aktifkan / nonaktifkan member (login ditolak bila aktif=0).
 public function updatestatusmember(Request $request){
     $idmember=$request->input('idmember');

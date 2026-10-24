@@ -210,6 +210,8 @@ Route::post('tambahrole', [ApiController::class, 'tambahrole']);
 Route::post('editrole', [ApiController::class, 'editrole']);
 Route::post('hapusrole', [ApiController::class, 'hapusrole']);
 Route::post('setmemberrole', [ApiController::class, 'setmemberrole']);
+Route::post('tambahmember', [ApiController::class, 'tambahmember']);
+Route::post('setmemberadmin', [ApiController::class, 'setmemberadmin']);
 Route::get('pembayaranlist', [ApiController::class, 'pembayaranlist']);
 Route::post('tambahpembayaran', [ApiController::class, 'tambahpembayaran']);
 Route::post('editpembayaran', [ApiController::class, 'editpembayaran']);
