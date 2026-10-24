@@ -4805,17 +4805,30 @@ public function confirmasipembayaran(Request $request){
 
   // Total dana adopsi terkumpul: order terverifikasi + riwayat lama
   // (data_adopsi 2015-2023 hasil import tak punya baris confirmation).
-  private function totalDanaTerkumpul(){
+  private function totalDanaTerkumpul($tahun = null){
     return (int) DB::table('data_adopsi as a')
       ->leftJoin('confirmation as c', 'c.invoice', '=', 'a.invoice')
       ->where(function ($q) { $q->whereNull('c.id')->orWhere('c.confirmation', 'yes'); })
+      ->when($tahun, function ($q) use ($tahun) { $q->whereYear('a.tgl_adopt', $tahun); })
       ->sum('a.price');
   }
 
   // Total donasi terverifikasi untuk halaman transparansi keuangan web.
-  public function totaldonasi(){
+  // ?tahun=YYYY → total dana + jumlah pohon teradopsi tahun itu (ringkasan admin).
+  public function totaldonasi(Request $request){
+    $tahun = (int) $request->input('tahun');
+    if ($tahun < 2000) {
+      return response()->json([
+        'total' => $this->totalDanaTerkumpul(),
+      ]);
+    }
     return response()->json([
-      'total' => $this->totalDanaTerkumpul(),
+      'total' => $this->totalDanaTerkumpul($tahun),
+      'pohon' => DB::table('data_adopsi as a')
+        ->leftJoin('confirmation as c', 'c.invoice', '=', 'a.invoice')
+        ->where(function ($q) { $q->whereNull('c.id')->orWhere('c.confirmation', 'yes'); })
+        ->whereYear('a.tgl_adopt', $tahun)
+        ->count(),
     ]);
   }
 
