@@ -24,6 +24,7 @@ use App\Models\Rekening;
 use App\Models\Role;
 use App\Models\Tobasket;
 use App\Models\Noadmin;
+use App\Models\Sosmed;
 use App\Models\Dataadopsi;
 use App\Models\Detailimage;
 use App\Models\Pohonimage;
@@ -315,7 +316,7 @@ public function uploadfototaging(Request $request){
 }
 
 // Kontak dinamos Contact Us: satu baris (id=1), di-set admin dari app.
-// Sosmed (instagram/facebook/youtube) nullable — tampil di footer web.
+// (Media sosial pindah ke tabel sosmed — CRUD getsosmed dkk.)
 public function getkontak(){
     $k = Kontak::find(1);
     return response()->json([
@@ -323,9 +324,6 @@ public function getkontak(){
         'telepon' => $k->telepon ?? '',
         'whatsapp' => $k->whatsapp ?? '',
         'email' => $k->email ?? '',
-        'instagram' => $k->instagram ?? '',
-        'facebook' => $k->facebook ?? '',
-        'youtube' => $k->youtube ?? '',
     ]);
 }
 
@@ -337,9 +335,6 @@ public function updatekontak(Request $request){
             'telepon' => $request->input('telepon') ?? '',
             'whatsapp' => $request->input('whatsapp') ?? '',
             'email' => $request->input('email') ?? '',
-            'instagram' => $request->input('instagram') ?: null,
-            'facebook' => $request->input('facebook') ?: null,
-            'youtube' => $request->input('youtube') ?: null,
         ]
     );
     return response()->json([
@@ -3567,6 +3562,60 @@ public function confirmasipembayaran(Request $request){
     }
     $n->delete();
     return response()->json(['value' => '200', 'pesan' => 'Success']);
+  }
+
+
+
+  // ===== CRUD akun media sosial (tabel sosmed) — footer web =====
+
+  private function validasiSosmed(Request $request){
+    $ikon = trim((string)$request->input('ikon'));
+    $label = trim((string)$request->input('label'));
+    $url = trim((string)$request->input('url'));
+    $ikonBoleh = ['instagram', 'facebook', 'youtube', 'x', 'tiktok', 'linkedin', 'whatsapp', 'website'];
+    if (!in_array($ikon, $ikonBoleh, true)) {
+      return [null, response()->json(['value' => '400', 'pesan' => 'Ikon tidak dikenal'], 400)];
+    }
+    if ($label === '') {
+      $label = ucfirst($ikon);
+    }
+    if (!preg_match('#^https?://#i', $url)) {
+      return [null, response()->json(['value' => '400', 'pesan' => 'URL harus diawali http:// atau https://'], 400)];
+    }
+    return [['ikon' => $ikon, 'label' => mb_substr($label, 0, 60), 'url' => $url], null];
+  }
+
+  public function getsosmed(){
+    return response()->json(
+      Sosmed::orderBy('id')->get(['id', 'ikon', 'label', 'url'])
+    );
+  }
+
+  public function tambahsosmed(Request $request){
+    [$data, $err] = $this->validasiSosmed($request);
+    if ($err) return $err;
+    $s = Sosmed::create($data);
+    return response()->json(['value' => '200', 'pesan' => 'Akun sosmed ditambahkan', 'id' => $s->id]);
+  }
+
+  public function editsosmed(Request $request){
+    $s = Sosmed::find($request->id);
+    if (!$s) {
+      return response()->json(['value' => '404', 'pesan' => 'Akun sosmed tidak ditemukan'], 404);
+    }
+    [$data, $err] = $this->validasiSosmed($request);
+    if ($err) return $err;
+    $s->update($data);
+    return response()->json(['value' => '200', 'pesan' => 'Akun sosmed diperbarui']);
+  }
+
+  public function hapussosmed(Request $request){
+    $s = Sosmed::find($request->id);
+    if (!$s) {
+      return response()->json(['value' => '404', 'pesan' => 'Akun sosmed tidak ditemukan'], 404);
+    }
+    $s->delete();
+    return response()->json(['value' => '200', 'pesan' => 'Akun sosmed dihapus']);
   }
 
 

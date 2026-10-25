@@ -83,6 +83,12 @@ Route::get('getnoadmin', [ApiController::class, 'getnoadmin']);
 Route::post('tambahnoadmin', [ApiController::class, 'tambahnoadmin']);
 Route::post('editnoadmin', [ApiController::class, 'editnoadmin']);
 Route::post('hapusnoadmin', [ApiController::class, 'hapusnoadmin']);
+
+// Akun media sosial (footer web)
+Route::get('getsosmed', [ApiController::class, 'getsosmed']);
+Route::post('tambahsosmed', [ApiController::class, 'tambahsosmed']);
+Route::post('editsosmed', [ApiController::class, 'editsosmed']);
+Route::post('hapussosmed', [ApiController::class, 'hapussosmed']);
 Route::post('adopsi', [ApiController::class, 'adopsi']);
 Route::post('mytrees', [ApiController::class, 'mytrees']);
 Route::post('sendNotif', [ApiController::class, 'sendNotif']);
