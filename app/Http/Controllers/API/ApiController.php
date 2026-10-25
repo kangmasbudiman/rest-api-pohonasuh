@@ -315,6 +315,7 @@ public function uploadfototaging(Request $request){
 }
 
 // Kontak dinamos Contact Us: satu baris (id=1), di-set admin dari app.
+// Sosmed (instagram/facebook/youtube) nullable — tampil di footer web.
 public function getkontak(){
     $k = Kontak::find(1);
     return response()->json([
@@ -322,6 +323,9 @@ public function getkontak(){
         'telepon' => $k->telepon ?? '',
         'whatsapp' => $k->whatsapp ?? '',
         'email' => $k->email ?? '',
+        'instagram' => $k->instagram ?? '',
+        'facebook' => $k->facebook ?? '',
+        'youtube' => $k->youtube ?? '',
     ]);
 }
 
@@ -333,6 +337,9 @@ public function updatekontak(Request $request){
             'telepon' => $request->input('telepon') ?? '',
             'whatsapp' => $request->input('whatsapp') ?? '',
             'email' => $request->input('email') ?? '',
+            'instagram' => $request->input('instagram') ?: null,
+            'facebook' => $request->input('facebook') ?: null,
+            'youtube' => $request->input('youtube') ?: null,
         ]
     );
     return response()->json([

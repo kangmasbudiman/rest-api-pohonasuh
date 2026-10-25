@@ -11,6 +11,6 @@ class Kontak extends Model
     protected $guarded = ['id'];
 
     protected $table = 'kontak';
-    protected $fillable = ['nama', 'telepon', 'whatsapp', 'email'];
+    protected $fillable = ['nama', 'telepon', 'whatsapp', 'email', 'instagram', 'facebook', 'youtube'];
     protected $primaryKey = 'id';
 }
