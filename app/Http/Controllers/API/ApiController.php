@@ -161,9 +161,11 @@ class ApiController extends Controller
         $namauser = $m ? $m->name : '';
         foreach (Member::where('admin',1)->get() as $k) {
             $isip = "Hallo Admin Pohon Asuh ada Order Check Out pohon dari Nama: {$namauser} ";
+            $isipen = "Hello Pohon Asuh Admin, there is a tree Check Out order from Name: {$namauser} ";
             $pesan = new Pesan();
             $pesan->idmember = $k->id;
             $pesan->pesan = $isip;
+            $pesan->pesan_en = $isipen;
             $pesan->status = "noread";
             $pesan->save();
             $this->kirimPush($k->id, 'CheckOut Trees', $isip);
@@ -1215,6 +1217,7 @@ public function allcertificate(){
      $data=new Pesan();
         $data->idmember=$iduser;
         $data->pesan="Pohon Anda Sedang Dalam Proses Taging";
+        $data->pesan_en="Your tree is in the tagging process";
         $data->status="noread";
         $data->save();
     
@@ -1534,10 +1537,14 @@ public function allcertificate(){
             foreach($cek as $k){
             $b['id']=$k->id;
             $b['pesan']=$k->pesan;
+            // terjemahan Inggris utk situs web (null → web fallback teks
+            // Indonesia); created_at mentah agar web format per bahasa
+            $b['pesan_en']=$k->pesan_en;
             $b['status']=$k->status;
             // bulan singkat Indonesia (Okt) — pola legacy memakai nama bulan
             // Inggris (Oct) yang tampil asing bagi pengguna
             $b['tanggal']=$k->created_at ? $k->created_at->locale('id')->translatedFormat('d M Y, H:i') : null;
+            $b['created_at']=$k->created_at ? $k->created_at->toDateTimeString() : null;
             array_push($items, $b);
             }
           return response()->json($items);
@@ -1871,6 +1878,7 @@ public function updateduration(Request $request){
                    $data=new Pesan();
         $data->idmember=$cariidpengasuh->idpengasuh;
         $data->pesan="Selamat, pembayaran Anda telah diverifikasi";
+        $data->pesan_en="Congratulations, your payment has been verified";
         $data->status="noread";
         $data->save();
         $this->kirimPush($cariidpengasuh->idpengasuh, 'Pembayaran Terverifikasi', 'Selamat, pembayaran Anda telah diverifikasi');
@@ -1971,6 +1979,7 @@ public function updateduration(Request $request){
       $pesan = new Pesan();
       $pesan->idmember = $fresh->idpengasuh;
       $pesan->pesan = 'Maaf, order Anda dibatalkan karena melewati batas waktu pembayaran 1x24 jam. Pohon telah dikembalikan ke daftar adopsi.';
+      $pesan->pesan_en = 'Sorry, your order was canceled because it passed the 1x24 hour payment deadline. The tree has been returned to the adoption list.';
       $pesan->status = 'noread';
       $pesan->save();
       $this->kirimPush($fresh->idpengasuh, 'Order Dibatalkan', 'Maaf, order Anda melewati batas waktu pembayaran 1x24 jam dan dibatalkan');
@@ -2017,6 +2026,7 @@ public function updateduration(Request $request){
                  $pesan=new Pesan();
        $pesan->idmember=$data->idpengasuh;
        $pesan->pesan="Maaf, order Anda telah dibatalkan";
+       $pesan->pesan_en="Sorry, your order has been canceled";
        $pesan->status="noread";
        $pesan->save();
        $this->kirimPush($data->idpengasuh, 'Order Dibatalkan', 'Maaf, order Anda telah dibatalkan');
@@ -2235,6 +2245,7 @@ public function updateduration(Request $request){
     $pesan = new Pesan();
     $pesan->idmember = $conf->idpengasuh;
     $pesan->pesan = 'Selamat, pembayaran Anda telah diverifikasi';
+    $pesan->pesan_en = 'Congratulations, your payment has been verified';
     $pesan->status = 'noread';
     $pesan->save();
     $this->kirimPush($conf->idpengasuh, 'Pembayaran Terverifikasi', 'Selamat, pembayaran Anda telah diverifikasi');
@@ -2769,6 +2780,7 @@ public function confirmasipembayaran(Request $request){
      $data=new Pesan();
         $data->idmember=$iduser;
         $data->pesan="Selamat Pohon anda telah selesai di taging certificat anda dapat di download";
+        $data->pesan_en="Congratulations, your tree has been tagged and your certificate is ready to download";
         $data->status="noread";
         $data->save();
 
@@ -2797,6 +2809,7 @@ public function confirmasipembayaran(Request $request){
         $data1=new Pesan();
         $data1->idmember=$data->pengasuh;
         $data1->pesan="Pohon anda telah selesai tagging";
+        $data1->pesan_en="Your tree has been tagged";
         $data1->status="noread";
         $data1->save();
         $this->kirimPush($data->pengasuh, 'Tagging Selesai', 'Pohon anda telah selesai tagging');
@@ -2933,9 +2946,11 @@ public function confirmasipembayaran(Request $request){
 
     foreach (Member::where('admin',1)->get() as $k) {
         $isip = "Permintaan proses tagging pohon {$data->idpohon} (invoice {$data->invoice}) dari desa {$data->desa} menunggu persetujuan";
+        $isipen = "Tagging process request for tree {$data->idpohon} (invoice {$data->invoice}) from village {$data->desa} awaiting approval";
         $pesan = new Pesan();
         $pesan->idmember = $k->id;
         $pesan->pesan = $isip;
+        $pesan->pesan_en = $isipen;
         $pesan->status = "noread";
         $pesan->save();
         $this->kirimPush($k->id, 'Permintaan Tagging', $isip);
@@ -3008,15 +3023,18 @@ public function confirmasipembayaran(Request $request){
       $data1=new Pesan();
       $data1->idmember=$data->pengasuh;
       $data1->pesan="Pohon Anda Sedang Dalam Proses Taging";
+      $data1->pesan_en="Your tree is in the tagging process";
       $data1->status="noread";
       $data1->save();
       $this->kirimPush($data->pengasuh, 'Proses Taging', 'Pohon Anda Sedang Dalam Proses Taging');
 
       foreach ($petugas as $p) {
         $isip="Permintaan tagging pohon {$data->idpohon} DISETUJUI admin — silakan unggah foto tagging dan tandai selesai";
+        $isipen="Tagging request for tree {$data->idpohon} APPROVED by admin — please upload the tagging photos and mark it complete";
         $pesan=new Pesan();
         $pesan->idmember=$p->idpetugas;
         $pesan->pesan=$isip;
+        $pesan->pesan_en=$isipen;
         $pesan->status="noread";
         $pesan->save();
         $this->kirimPush($p->idpetugas, 'Permintaan Tagging', $isip);
@@ -3036,9 +3054,11 @@ public function confirmasipembayaran(Request $request){
 
     foreach ($petugas as $p) {
       $isip="Permintaan tagging pohon {$data->idpohon} DITOLAK admin — order kembali ke daftar Baru";
+      $isipen="Tagging request for tree {$data->idpohon} REJECTED by admin — order returned to the New list";
       $pesan=new Pesan();
       $pesan->idmember=$p->idpetugas;
       $pesan->pesan=$isip;
+      $pesan->pesan_en=$isipen;
       $pesan->status="noread";
       $pesan->save();
       $this->kirimPush($p->idpetugas, 'Permintaan Tagging', $isip);
@@ -3357,9 +3377,11 @@ public function confirmasipembayaran(Request $request){
             if (!$carimember) { continue; }
 
             $isip = "Permintaan Taging kode {$idpohon}, Nama Pohon: {$namapohon}";
+            $isipen = "Tagging request code {$idpohon}, Tree Name: {$namapohon}";
             $pesan=new Pesan();
             $pesan->idmember=$idpengurus;
             $pesan->pesan=$isip;
+            $pesan->pesan_en=$isipen;
             $pesan->status="noread";
             $pesan->save();
             $this->kirimPush($idpengurus, 'Taging Pohon', $isip);
