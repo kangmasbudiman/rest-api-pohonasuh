@@ -1535,7 +1535,9 @@ public function allcertificate(){
             $b['id']=$k->id;
             $b['pesan']=$k->pesan;
             $b['status']=$k->status;
-            $b['tanggal']=$k->created_at ? $k->created_at->format('d M Y, H:i') : null;
+            // bulan singkat Indonesia (Okt) — pola legacy memakai nama bulan
+            // Inggris (Oct) yang tampil asing bagi pengguna
+            $b['tanggal']=$k->created_at ? $k->created_at->locale('id')->translatedFormat('d M Y, H:i') : null;
             array_push($items, $b);
             }
           return response()->json($items);
@@ -1868,10 +1870,10 @@ public function updateduration(Request $request){
                  
                    $data=new Pesan();
         $data->idmember=$cariidpengasuh->idpengasuh;
-        $data->pesan="Congratulations, your payment has been verified";
+        $data->pesan="Selamat, pembayaran Anda telah diverifikasi";
         $data->status="noread";
         $data->save();
-        $this->kirimPush($cariidpengasuh->idpengasuh, 'Payment Verified', 'Congratulations, your payment has been verified');
+        $this->kirimPush($cariidpengasuh->idpengasuh, 'Pembayaran Terverifikasi', 'Selamat, pembayaran Anda telah diverifikasi');
 
         // terbitkan nomor sertifikat untuk order yang baru diverifikasi
         $this->isiCertnum($cariidpengasuh->invoice);
@@ -1968,10 +1970,10 @@ public function updateduration(Request $request){
 
       $pesan = new Pesan();
       $pesan->idmember = $fresh->idpengasuh;
-      $pesan->pesan = 'Sorry, your order was canceled because it passed the 1x24 hour payment deadline. The tree has been returned to the adoption list.';
+      $pesan->pesan = 'Maaf, order Anda dibatalkan karena melewati batas waktu pembayaran 1x24 jam. Pohon telah dikembalikan ke daftar adopsi.';
       $pesan->status = 'noread';
       $pesan->save();
-      $this->kirimPush($fresh->idpengasuh, 'Order Canceled', 'Sorry, your order passed the 1x24 hour payment deadline and was canceled');
+      $this->kirimPush($fresh->idpengasuh, 'Order Dibatalkan', 'Maaf, order Anda melewati batas waktu pembayaran 1x24 jam dan dibatalkan');
     }
   }
 
@@ -2014,10 +2016,10 @@ public function updateduration(Request $request){
                  //memberikan informasi bila order dibatalkan
                  $pesan=new Pesan();
        $pesan->idmember=$data->idpengasuh;
-       $pesan->pesan="Sorry, your order has been canceled";
+       $pesan->pesan="Maaf, order Anda telah dibatalkan";
        $pesan->status="noread";
        $pesan->save();
-       $this->kirimPush($data->idpengasuh, 'Order Canceled', 'Sorry, your order has been canceled');
+       $this->kirimPush($data->idpengasuh, 'Order Dibatalkan', 'Maaf, order Anda telah dibatalkan');
 
                   return response()->json(
                         [
@@ -2232,10 +2234,10 @@ public function updateduration(Request $request){
     // informasi ke customer — pola verivication()
     $pesan = new Pesan();
     $pesan->idmember = $conf->idpengasuh;
-    $pesan->pesan = 'Congratulations, your payment has been verified';
+    $pesan->pesan = 'Selamat, pembayaran Anda telah diverifikasi';
     $pesan->status = 'noread';
     $pesan->save();
-    $this->kirimPush($conf->idpengasuh, 'Payment Verified', 'Congratulations, your payment has been verified');
+    $this->kirimPush($conf->idpengasuh, 'Pembayaran Terverifikasi', 'Selamat, pembayaran Anda telah diverifikasi');
 
     // terbitkan nomor sertifikat (paritas verivication manual)
     $this->isiCertnum($conf->invoice);
