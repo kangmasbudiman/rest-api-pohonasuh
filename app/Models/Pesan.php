@@ -11,7 +11,7 @@ class Pesan extends Model
     protected $guarded = ['id'];
 
     protected $table='pesan_notif';
-    protected $fillable=['idmember','pesan','status'];
+    protected $fillable=['idmember','pesan','pesan_en','link','status'];
     protected $primaryKey='id';
 
 

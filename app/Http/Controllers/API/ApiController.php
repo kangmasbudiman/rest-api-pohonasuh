@@ -156,7 +156,7 @@ class ApiController extends Controller
     // Pesan + push ke semua admin saat member check out order. Dulu tugas
     // endpoint sendNotif, tapi app tak pernah memanggilnya — kini melekat
     // di alur confirmasipembayaran supaya notifikasi pasti terkirim.
-    private function notifikasiCheckoutAdmin($idmember){
+    private function notifikasiCheckoutAdmin($idmember, $invoice = null){
         $m = Member::find($idmember);
         $namauser = $m ? $m->name : '';
         foreach (Member::where('admin',1)->get() as $k) {
@@ -166,6 +166,9 @@ class ApiController extends Controller
             $pesan->idmember = $k->id;
             $pesan->pesan = $isip;
             $pesan->pesan_en = $isipen;
+            $pesan->link = $invoice
+                ? '/admin/verifikasi/' . rawurlencode($invoice)
+                : '/admin/verifikasi';
             $pesan->status = "noread";
             $pesan->save();
             $this->kirimPush($k->id, 'CheckOut Trees', $isip);
@@ -1218,6 +1221,7 @@ public function allcertificate(){
         $data->idmember=$iduser;
         $data->pesan="Pohon Anda Sedang Dalam Proses Taging";
         $data->pesan_en="Your tree is in the tagging process";
+        $data->link='/pohon/' . rawurlencode($idpohon);
         $data->status="noread";
         $data->save();
     
@@ -1540,6 +1544,8 @@ public function allcertificate(){
             // terjemahan Inggris utk situs web (null → web fallback teks
             // Indonesia); created_at mentah agar web format per bahasa
             $b['pesan_en']=$k->pesan_en;
+            // path tujuan notifikasi (null = tanpa halaman tujuan)
+            $b['link']=$k->link;
             $b['status']=$k->status;
             // bulan singkat Indonesia (Okt) — pola legacy memakai nama bulan
             // Inggris (Oct) yang tampil asing bagi pengguna
@@ -1879,6 +1885,7 @@ public function updateduration(Request $request){
         $data->idmember=$cariidpengasuh->idpengasuh;
         $data->pesan="Selamat, pembayaran Anda telah diverifikasi";
         $data->pesan_en="Congratulations, your payment has been verified";
+        $data->link='/dashboard';
         $data->status="noread";
         $data->save();
         $this->kirimPush($cariidpengasuh->idpengasuh, 'Pembayaran Terverifikasi', 'Selamat, pembayaran Anda telah diverifikasi');
@@ -1980,6 +1987,7 @@ public function updateduration(Request $request){
       $pesan->idmember = $fresh->idpengasuh;
       $pesan->pesan = 'Maaf, order Anda dibatalkan karena melewati batas waktu pembayaran 1x24 jam. Pohon telah dikembalikan ke daftar adopsi.';
       $pesan->pesan_en = 'Sorry, your order was canceled because it passed the 1x24 hour payment deadline. The tree has been returned to the adoption list.';
+      $pesan->link = '/dashboard';
       $pesan->status = 'noread';
       $pesan->save();
       $this->kirimPush($fresh->idpengasuh, 'Order Dibatalkan', 'Maaf, order Anda melewati batas waktu pembayaran 1x24 jam dan dibatalkan');
@@ -2027,6 +2035,7 @@ public function updateduration(Request $request){
        $pesan->idmember=$data->idpengasuh;
        $pesan->pesan="Maaf, order Anda telah dibatalkan";
        $pesan->pesan_en="Sorry, your order has been canceled";
+       $pesan->link='/dashboard';
        $pesan->status="noread";
        $pesan->save();
        $this->kirimPush($data->idpengasuh, 'Order Dibatalkan', 'Maaf, order Anda telah dibatalkan');
@@ -2246,6 +2255,7 @@ public function updateduration(Request $request){
     $pesan->idmember = $conf->idpengasuh;
     $pesan->pesan = 'Selamat, pembayaran Anda telah diverifikasi';
     $pesan->pesan_en = 'Congratulations, your payment has been verified';
+    $pesan->link = '/dashboard';
     $pesan->status = 'noread';
     $pesan->save();
     $this->kirimPush($conf->idpengasuh, 'Pembayaran Terverifikasi', 'Selamat, pembayaran Anda telah diverifikasi');
@@ -2450,7 +2460,7 @@ public function confirmasipembayaran(Request $request){
          }
 
          // beri tahu admin soal order baru (pesan in-app + push FCM)
-         $this->notifikasiCheckoutAdmin($request->input('id_member'));
+         $this->notifikasiCheckoutAdmin($request->input('id_member'), $invoice);
       
           return response()->json(
             [
@@ -2570,7 +2580,7 @@ public function confirmasipembayaran(Request $request){
          }
 
          // beri tahu admin soal order baru (pesan in-app + push FCM)
-         $this->notifikasiCheckoutAdmin($request->input('id_member'));
+         $this->notifikasiCheckoutAdmin($request->input('id_member'), $invoice);
       
           return response()->json(
             [
@@ -2773,14 +2783,18 @@ public function confirmasipembayaran(Request $request){
 
     $data=Dataadopsi::find($id);
     $iduser=$data->pengasuh;
+    $linkSertifikat = $data->certnum
+        ? '/sertifikat/' . str_replace('%2F', '/', rawurlencode($data->certnum))
+        : '/dashboard';
 
     $data->proses=0;
     $data->update();
-    
+
      $data=new Pesan();
         $data->idmember=$iduser;
         $data->pesan="Selamat Pohon anda telah selesai di taging certificat anda dapat di download";
         $data->pesan_en="Congratulations, your tree has been tagged and your certificate is ready to download";
+        $data->link=$linkSertifikat;
         $data->status="noread";
         $data->save();
 
@@ -2810,6 +2824,9 @@ public function confirmasipembayaran(Request $request){
         $data1->idmember=$data->pengasuh;
         $data1->pesan="Pohon anda telah selesai tagging";
         $data1->pesan_en="Your tree has been tagged";
+        $data1->link=$data->certnum
+            ? '/sertifikat/' . str_replace('%2F', '/', rawurlencode($data->certnum))
+            : '/dashboard';
         $data1->status="noread";
         $data1->save();
         $this->kirimPush($data->pengasuh, 'Tagging Selesai', 'Pohon anda telah selesai tagging');
@@ -2951,6 +2968,7 @@ public function confirmasipembayaran(Request $request){
         $pesan->idmember = $k->id;
         $pesan->pesan = $isip;
         $pesan->pesan_en = $isipen;
+        $pesan->link = '/admin/tagging?proses=2';
         $pesan->status = "noread";
         $pesan->save();
         $this->kirimPush($k->id, 'Permintaan Tagging', $isip);
@@ -3024,6 +3042,7 @@ public function confirmasipembayaran(Request $request){
       $data1->idmember=$data->pengasuh;
       $data1->pesan="Pohon Anda Sedang Dalam Proses Taging";
       $data1->pesan_en="Your tree is in the tagging process";
+      $data1->link='/pohon/' . rawurlencode($data->idpohon);
       $data1->status="noread";
       $data1->save();
       $this->kirimPush($data->pengasuh, 'Proses Taging', 'Pohon Anda Sedang Dalam Proses Taging');
@@ -3035,6 +3054,7 @@ public function confirmasipembayaran(Request $request){
         $pesan->idmember=$p->idpetugas;
         $pesan->pesan=$isip;
         $pesan->pesan_en=$isipen;
+        $pesan->link='/admin/tagging?proses=2';
         $pesan->status="noread";
         $pesan->save();
         $this->kirimPush($p->idpetugas, 'Permintaan Tagging', $isip);
@@ -3059,6 +3079,7 @@ public function confirmasipembayaran(Request $request){
       $pesan->idmember=$p->idpetugas;
       $pesan->pesan=$isip;
       $pesan->pesan_en=$isipen;
+      $pesan->link='/admin/tagging?proses=1';
       $pesan->status="noread";
       $pesan->save();
       $this->kirimPush($p->idpetugas, 'Permintaan Tagging', $isip);
@@ -3382,6 +3403,7 @@ public function confirmasipembayaran(Request $request){
             $pesan->idmember=$idpengurus;
             $pesan->pesan=$isip;
             $pesan->pesan_en=$isipen;
+            $pesan->link='/admin/tagging';
             $pesan->status="noread";
             $pesan->save();
             $this->kirimPush($idpengurus, 'Taging Pohon', $isip);
@@ -4808,12 +4830,19 @@ public function confirmasipembayaran(Request $request){
         $selesai = date('Y-m-d', strtotime("+$r->dur year", strtotime($r->tgl_adopt)));
       }
       $hadiah = trim((string) $r->nama);
+      $pengasuhNama = trim((string) $r->pengasuh_nama);
+      // data_adopsi.nama = nama penerima sertifikat — selalu terisi juga
+      // pada adopsi mandiri, jadi hanya tampil sebagai hadiah bila beda
+      // dari nama member pengasuh.
+      $untuk = ($hadiah !== '' && $pengasuhNama !== '' && strcasecmp($hadiah, $pengasuhNama) !== 0)
+        ? $hadiah
+        : null;
       return [
         'id' => $r->id,
-        'nama' => ($r->pengasuh_nama && trim((string) $r->pengasuh_nama) !== '')
+        'nama' => $pengasuhNama !== ''
           ? $r->pengasuh_nama
           : ($hadiah !== '' ? $hadiah : '-'),
-        'hadiah' => $hadiah !== '' ? $hadiah : null,
+        'hadiah' => $untuk,
         'tgl_adopt' => $r->tgl_adopt,
         'tgl_exp' => $selesai,
         'dur' => (int) $r->dur,
