@@ -41,6 +41,7 @@ Route::post('pohon', [ApiController::class, 'pohon']);
 Route::post('pohoncari', [ApiController::class, 'pohoncari']);
 Route::post('addfototaging', [ApiController::class, 'addfototaging']);
 Route::post('uploadfototaging', [ApiController::class, 'uploadfototaging']);
+Route::post('hapusfototaging', [ApiController::class, 'hapusfototaging']);
 Route::post('updateposisi', [ApiController::class, 'updateposisi']);
 Route::get('posisipetugas', [ApiController::class, 'posisipetugas']);
 Route::get('getkontak', [ApiController::class, 'getkontak']);

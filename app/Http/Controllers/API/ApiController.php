@@ -246,9 +246,10 @@ class ApiController extends Controller
           $b['desa'] = $k->desa;
           $b['foto'] = Fototaging::where('idadopsi', $k->id)
               ->orderBy('id')
-              ->get(['urlGambar', 'tanggal'])
+              ->get(['id', 'urlGambar', 'tanggal'])
               ->map(function ($f) {
                   return [
+                      'id' => $f->id,
                       'url' => $f->urlGambar,
                       // kolom DATE kembali sebagai string Y-m-d (model tak
                       // memakai cast $dates)
@@ -317,6 +318,35 @@ public function uploadfototaging(Request $request){
         'value'=>'200',
         'pesan'=>'Success',
         'url'=>$url,
+    ]);
+}
+
+// Hapus satu foto tagging: row + file fisik di public/upload/taging.
+// Hanya diizinkan selama order masih dalam proses tagging (proses=2,
+// acc_tagging=1) — foto order yang sudah selesai terkunci sebagai bukti
+// tagging (guard sama dengan upload).
+public function hapusfototaging(Request $request){
+    $foto = Fototaging::find($request->input('id'));
+    if (!$foto) {
+        return response()->json([
+            'value'=>'404',
+            'pesan'=>'Foto tidak ditemukan',
+        ], 404);
+    }
+    if($r = $this->guardAccTagging($foto->idadopsi)) return $r;
+
+    // Hanya file self-hosted milik endpoint upload (prefix taging_) yang
+    // dihapus dari disk; URL eksternal (Supabase lama) cukup hapus row.
+    $nama = basename((string) parse_url((string) $foto->urlGambar, PHP_URL_PATH));
+    if ($nama && str_starts_with($nama, 'taging_')) {
+        $path = base_path('public/upload/taging').'/'.$nama;
+        if (file_exists($path)) @unlink($path);
+    }
+    $foto->delete();
+
+    return response()->json([
+        'value'=>'200',
+        'pesan'=>'Foto dihapus',
     ]);
 }
 
@@ -2929,7 +2959,9 @@ public function confirmasipembayaran(Request $request){
     if((int)$data->proses !== 2 || (int)$data->acc_tagging !== 1){
       return response()->json([
         'value' =>409,
-        'pesan' =>"Order menunggu persetujuan admin"
+        'pesan' =>(int)$data->proses === 3
+          ? "Order sudah selesai — foto tagging terkunci"
+          : "Order menunggu persetujuan admin"
       ]);
     }
     return null;
