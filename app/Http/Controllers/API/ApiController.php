@@ -4856,7 +4856,23 @@ public function confirmasipembayaran(Request $request){
         'data_adopsi.dur', 'data_adopsi.nama', 'data_adopsi.invoice',
         'member.name as pengasuh_nama',
       ]);
-    $hasil = $rows->map(function ($r) {
+    // Foto tagging per siklus adopsi (scope idadopsi) — tombol "Foto Tagging"
+    // per kartu riwayat di detail pohon. Foto legacy tanpa idadopsi tidak
+    // menempel ke kartu mana pun.
+    $fotoPerAdopsi = [];
+    if ($rows->isNotEmpty()) {
+      Fototaging::whereIn('idadopsi', $rows->pluck('id')->all())
+        ->orderBy('id')
+        ->get(['id', 'idadopsi', 'urlGambar', 'tanggal'])
+        ->each(function ($f) use (&$fotoPerAdopsi) {
+          $fotoPerAdopsi[$f->idadopsi][] = [
+            'id' => $f->id,
+            'url' => $f->urlGambar,
+            'tanggal' => $f->tanggal !== null ? (string) $f->tanggal : null,
+          ];
+        });
+    }
+    $hasil = $rows->map(function ($r) use ($fotoPerAdopsi) {
       $selesai = $r->tgl_exp;
       if (!$selesai && $r->tgl_adopt && $r->dur) {
         $selesai = date('Y-m-d', strtotime("+$r->dur year", strtotime($r->tgl_adopt)));
@@ -4880,6 +4896,7 @@ public function confirmasipembayaran(Request $request){
         'dur' => (int) $r->dur,
         'invoice' => (string) $r->invoice,
         'aktif' => $selesai ? (string) $selesai >= date('Y-m-d') : false,
+        'foto' => $fotoPerAdopsi[$r->id] ?? [],
       ];
     });
     return response()->json($hasil);
