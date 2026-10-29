@@ -243,6 +243,17 @@ class ApiController extends Controller
         return $plain;
     }
 
+    // Invoice order versi acak (10 karakter alfanumerik tanpa karakter ambigu,
+    // pola sama dengan order dari app) — tidak berurutan sehingga nomor order
+    // tidak membocorkan volume transaksi. Kolom invoice varchar(15): "#" + 10.
+    private function buatInvoiceAcak(){
+        $charset = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
+        do {
+            $invoice = '#' . substr(str_shuffle(str_repeat($charset, 10)), 0, 10);
+        } while (Confirmasi::where('invoice', $invoice)->exists());
+        return $invoice;
+    }
+
     private function kirimEmailVerifikasiKe($m){
         $token = $this->buatTokenEmail($m->emaile, 'verify');
         $link = rtrim(env('WEB_URL', 'https://pohonasuh.io'), '/') . '/verifikasi?token=' . $token;
@@ -2479,18 +2490,8 @@ public function confirmasipembayaran(Request $request){
                  $destinationPath = 'public/upload/slider';
                  $file->move($destinationPath,$name_file);
                   //membuat nomer invoce otomatis
-                    $tanggal=Date('Ymd');
                     $tanggalpesan=Date('Y-m-d');
-                    // urut hanya dari invoice numerik "#Ymd<urut>" — invoice
-                    // non-numerik (fixture/demo manual) tidak boleh meracuni
-                    // penomoran (TypeError string + int di PHP 8)
-                    $ceknomertransaksi=Confirmasi::where('invoice','like','#%')
-                        ->whereRaw("invoice REGEXP '^#[0-9]{8}[0-9]+$'")
-                        ->orderByDesc('invoice')
-                        ->first();
-                    $nomerselanjutnya=$ceknomertransaksi ? (int)substr($ceknomertransaksi->invoice,9) : 0;
-                    $simbol="#";
-                    $nomerinvoice=$simbol.$tanggal.($nomerselanjutnya+1);
+                    $nomerinvoice=$this->buatInvoiceAcak();
                     
                     
                     $data=new Confirmasi();
@@ -2580,7 +2581,8 @@ public function confirmasipembayaran(Request $request){
             [
               'message'=> "Succes Add",
               'code'=>200,
-              'id'=> $idconfirmation
+              'id'=> $idconfirmation,
+              'invoice'=> $nomerinvoice
             ]
        );
                  
@@ -2602,18 +2604,8 @@ public function confirmasipembayaran(Request $request){
    
          
     }else{ //membuat nomer invoce otomatis
-                    $tanggal=Date('Ymd');
                     $tanggalpesan=Date('Y-m-d');
-                    // urut hanya dari invoice numerik "#Ymd<urut>" — invoice
-                    // non-numerik (fixture/demo manual) tidak boleh meracuni
-                    // penomoran (TypeError string + int di PHP 8)
-                    $ceknomertransaksi=Confirmasi::where('invoice','like','#%')
-                        ->whereRaw("invoice REGEXP '^#[0-9]{8}[0-9]+$'")
-                        ->orderByDesc('invoice')
-                        ->first();
-                    $nomerselanjutnya=$ceknomertransaksi ? (int)substr($ceknomertransaksi->invoice,9) : 0;
-                    $simbol="#";
-                    $nomerinvoice=$simbol.$tanggal.($nomerselanjutnya+1);
+                    $nomerinvoice=$this->buatInvoiceAcak();
                     
                     
                     $data=new Confirmasi();
@@ -2700,7 +2692,8 @@ public function confirmasipembayaran(Request $request){
             [
               'message'=> "Succes Add",
               'code'=>200,
-              'id'=> $idconfirmation
+              'id'=> $idconfirmation,
+              'invoice'=> $nomerinvoice
             ]
        );
                  
