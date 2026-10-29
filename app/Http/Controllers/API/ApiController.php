@@ -156,7 +156,7 @@ class ApiController extends Controller
     // Pesan + push ke semua admin saat member check out order. Dulu tugas
     // endpoint sendNotif, tapi app tak pernah memanggilnya — kini melekat
     // di alur confirmasipembayaran supaya notifikasi pasti terkirim.
-    private function notifikasiCheckoutAdmin($idmember, $invoice = null){
+    private function notifikasiCheckoutAdmin($idmember, $idconfirmation = null){
         $m = Member::find($idmember);
         $namauser = $m ? $m->name : '';
         foreach (Member::where('admin',1)->get() as $k) {
@@ -166,8 +166,10 @@ class ApiController extends Controller
             $pesan->idmember = $k->id;
             $pesan->pesan = $isip;
             $pesan->pesan_en = $isipen;
-            $pesan->link = $invoice
-                ? '/admin/verifikasi/' . rawurlencode($invoice)
+            // Halaman /admin/verifikasi/[code] mencocokkan ID confirmation
+            // (angka), bukan nomor invoice "#Ymd<n>".
+            $pesan->link = $idconfirmation
+                ? '/admin/verifikasi/' . (int) $idconfirmation
                 : '/admin/verifikasi';
             $pesan->status = "noread";
             $pesan->save();
@@ -2490,7 +2492,7 @@ public function confirmasipembayaran(Request $request){
          }
 
          // beri tahu admin soal order baru (pesan in-app + push FCM)
-         $this->notifikasiCheckoutAdmin($request->input('id_member'), $invoice);
+         $this->notifikasiCheckoutAdmin($request->input('id_member'), $idconfirmation);
       
           return response()->json(
             [
@@ -2610,7 +2612,7 @@ public function confirmasipembayaran(Request $request){
          }
 
          // beri tahu admin soal order baru (pesan in-app + push FCM)
-         $this->notifikasiCheckoutAdmin($request->input('id_member'), $invoice);
+         $this->notifikasiCheckoutAdmin($request->input('id_member'), $idconfirmation);
       
           return response()->json(
             [
