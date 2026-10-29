@@ -2365,9 +2365,34 @@ public function updateduration(Request $request){
       return response()->json(['ok' => true, 'message' => 'sudah diverifikasi', 'id' => $conf->id]);
     }
 
-    // order sudah kadaluarsa batas pembayaran 1x24 jam → jangan verifikasi
+    // order sudah kadaluarsa batas pembayaran 1x24 jam → jangan verifikasi.
+    // Uang tetap masuk ke Mayar utk order mati: beri tahu donor + admin agar
+    // pengembalian dana ditangani (sebelumnya hanya tercatat di log).
     if ($conf->confirmation === 'cancel') {
       Log::warning('webhook mayar: pembayaran datang utk order cancel', ['id' => $conf->id, 'invoice' => $conf->invoice]);
+
+      $pesan = new Pesan();
+      $pesan->idmember = $conf->idpengasuh;
+      $pesan->pesan = 'Pembayaran Anda untuk order '.$conf->invoice.' kami terima, tetapi order tersebut sudah dibatalkan. Tim kami akan menghubungi Anda mengenai pengembalian dana.';
+      $pesan->pesan_en = 'We received your payment for order '.$conf->invoice.', but that order has been cancelled. Our team will contact you about a refund.';
+      $pesan->link = '/dashboard';
+      $pesan->status = "noread";
+      $pesan->save();
+      $this->kirimPush($conf->idpengasuh, 'Pembayaran Order Dibatalkan', 'Pembayaran diterima untuk order yang sudah dibatalkan');
+
+      foreach (Member::where('admin',1)->get() as $k) {
+        $isip = 'Dana Mayar masuk untuk order yang sudah DIBATALKAN: '.$conf->invoice.' (Rp'.number_format((int)$conf->price).'). Mohon cek Mayar dan proses pengembalian dana.';
+        $isipen = 'Mayar payment received for a CANCELLED order: '.$conf->invoice.' (Rp'.number_format((int)$conf->price).'). Please check Mayar and refund the payment.';
+        $pesan = new Pesan();
+        $pesan->idmember = $k->id;
+        $pesan->pesan = $isip;
+        $pesan->pesan_en = $isipen;
+        $pesan->link = '/admin/verifikasi/'.$conf->id;
+        $pesan->status = "noread";
+        $pesan->save();
+        $this->kirimPush($k->id, 'Dana Order Batal Masuk', $isip);
+      }
+
       return response()->json(['ok' => true, 'message' => 'order sudah dibatalkan', 'id' => $conf->id]);
     }
 
@@ -3316,6 +3341,10 @@ public function confirmasipembayaran(Request $request){
                 // jumlah pohon per invoice — dipakai app utk mengelompokkan order.
                 'total' => $cekconfirm ? $cekconfirm->price : $k->price,
                 'jmlpohon' => $cekconfirm ? (int) $cekconfirm->jml_pohon : 1,
+                // Tautan bayar online Mayar bila donor sudah membuat tagihan —
+                // dipakai panel admin menandai order ber-tagihan-online pada
+                // daftar "Menunggu Pembayaran".
+                'link_invoice' => $cekconfirm ? $cekconfirm->link_invoice : null,
                 // Waktu terakhir baris adopsi di-update (mis. petugas mengubah
                 // proses taging) + jumlah foto taging pohon ini (konsisten
                 // dgn lihatfototaging yang query per idpohon).
