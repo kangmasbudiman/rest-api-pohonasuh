@@ -4,6 +4,7 @@ namespace App\Console;
 
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Foundation\Console\Kernel as ConsoleKernel;
+use Illuminate\Support\Facades\DB;
 
 class Kernel extends ConsoleKernel
 {
@@ -18,6 +19,10 @@ class Kernel extends ConsoleKernel
         $schedule->command('kirim:email')->weekly()->mondays()->at('07:00')->timezone('Asia/Jakarta');
         $schedule->command('kirim:email2')->weekly()->mondays()->at('07:00')->timezone('Asia/Jakarta');
         $schedule->command('reset:cuti')->dailyAt('07:00')->timezone('Asia/Jakarta');
+        // Bersihkan token verifikasi/reset yang sudah kedaluwarsa (>2 hari).
+        $schedule->call(function () {
+            DB::table('email_tokens')->where('created_at', '<', now()->subDays(2))->delete();
+        })->dailyAt('07:10')->timezone('Asia/Jakarta');
     }
 
     /**

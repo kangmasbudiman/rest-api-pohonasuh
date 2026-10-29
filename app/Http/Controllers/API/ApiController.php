@@ -177,6 +177,88 @@ class ApiController extends Controller
         }
     }
 
+    // ===== Email transaksional via Resend (verifikasi email & reset password) =====
+
+    // Kirim email HTML via Resend API. Fail-soft: kegagalan pihak ketiga tidak
+    // menggagalkan alur utama — dicatat di log, ada jalur kirim ulang.
+    private function kirimEmailResend($to, $subjek, $html){
+        if (!env('RESEND_KEY')) {
+            Log::warning('RESEND_KEY belum diisi — email tidak dikirim ke '.$to);
+            return false;
+        }
+        try {
+            $r = Http::withToken(env('RESEND_KEY'))
+                ->timeout(15)
+                ->post('https://api.resend.com/emails', [
+                    'from' => env('MAIL_FROM', 'Pohon Asuh <noreply@pohonasuh.io>'),
+                    'to' => [$to],
+                    'subject' => $subjek,
+                    'html' => $html,
+                ]);
+            if ($r->failed()) {
+                Log::error('Resend gagal ke '.$to.' : '.$r->status().' '.$r->body());
+                return false;
+            }
+            return true;
+        } catch (\Throwable $e) {
+            Log::error('Resend exception: '.$e->getMessage());
+            return false;
+        }
+    }
+
+    // Kerangka email HTML seragam (header emerald, tombol, catatan, footer).
+    private function templateEmail($judul, $isi, $tombolLabel, $link, $catatan){
+        $linkEsc = htmlspecialchars($link, ENT_QUOTES, 'UTF-8');
+        return '<!doctype html><html><body style="margin:0;padding:0;background:#f4f6f5;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">'
+            .'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 12px;">'
+            .'<table role="presentation" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;">'
+            .'<tr><td style="background:#059669;padding:20px 28px;font-size:18px;font-weight:700;color:#ffffff;">&#127807; Pohon Asuh</td></tr>'
+            .'<tr><td style="padding:28px;">'
+            .'<h2 style="margin:0 0 12px;font-size:18px;color:#064e3b;">'.$judul.'</h2>'
+            .'<p style="margin:0 0 16px;font-size:14px;line-height:22px;color:#374151;">'.$isi.'</p>'
+            .'<p style="margin:0 0 24px;text-align:center;"><a href="'.$linkEsc.'" style="background:#059669;color:#ffffff;padding:12px 28px;border-radius:8px;text-decoration:none;font-size:14px;font-weight:600;display:inline-block;">'.$tombolLabel.'</a></p>'
+            .'<p style="margin:0 0 8px;font-size:12px;line-height:18px;color:#6b7280;">Jika tombol tidak berfungsi, salin tautan berikut ke browser:<br>'.$linkEsc.'</p>'
+            .'<p style="margin:0;font-size:12px;color:#6b7280;">'.$catatan.'</p>'
+            .'</td></tr>'
+            .'<tr><td style="padding:16px 28px;background:#f9fafb;font-size:11px;color:#9ca3af;">Email otomatis — mohon jangan dibalas. Pohon Asuh &middot; pohonasuh.io</td></tr>'
+            .'</table></td></tr></table></body></html>';
+    }
+
+    // Buat token baru untuk email+jenis — token lama dihapus supaya selalu
+    // yang terbaru yang berlaku. DB hanya menyimpan hash sha256; token plain
+    // hanya ada di link email (di environment local token dicatat ke log
+    // untuk memudahkan pengujian).
+    private function buatTokenEmail($email, $jenis){
+        DB::table('email_tokens')->where(['email' => $email, 'jenis' => $jenis])->delete();
+        $plain = bin2hex(random_bytes(32));
+        DB::table('email_tokens')->insert([
+            'email' => $email,
+            'jenis' => $jenis,
+            'token_hash' => hash('sha256', $plain),
+            'created_at' => now(),
+        ]);
+        if (app()->environment('local')) {
+            Log::info("token {$jenis} untuk {$email}: {$plain}");
+        }
+        return $plain;
+    }
+
+    private function kirimEmailVerifikasiKe($m){
+        $token = $this->buatTokenEmail($m->emaile, 'verify');
+        $link = rtrim(env('WEB_URL', 'https://pohonasuh.io'), '/') . '/verifikasi?token=' . $token;
+        return $this->kirimEmailResend(
+            $m->emaile,
+            'Verifikasi Email — Pohon Asuh',
+            $this->templateEmail(
+                'Verifikasi Email Anda',
+                'Halo '.htmlspecialchars($m->name, ENT_QUOTES, 'UTF-8').', terima kasih telah mendaftar di Pohon Asuh. Klik tombol berikut untuk mengaktifkan akun Anda:',
+                'Verifikasi Email',
+                $link,
+                'Tautan berlaku 24 jam dan hanya bisa dipakai sekali. Jika Anda tidak merasa mendaftar, abaikan email ini.'
+            )
+        );
+    }
+
     // Registrasi / refresh token FCM device dari app tanpa login ulang.
     public function updatedevicetoken(Request $request){
         $id = $request->input('id');
@@ -5708,24 +5790,41 @@ public function confirmasipembayaran(Request $request){
   }
 
   public function register (Request $request){
+    $name = trim((string)$request->input('name'));
+    $emaile = strtolower(trim((string)$request->input('emaile')));
+    $passe = (string)$request->input('passe');
+    // value tetap 0 agar app (mencek value==0) tidak menganggap sukses.
+    if ($name === '' || $emaile === '' || $passe === '') {
+      return response()->json(['message' => 'Nama, email, dan kata sandi wajib diisi', 'value' => 0]);
+    }
+    if (!filter_var($emaile, FILTER_VALIDATE_EMAIL)) {
+      return response()->json(['message' => 'Format email tidak valid', 'value' => 0]);
+    }
+    if (strlen($passe) < 6) {
+      return response()->json(['message' => 'Kata sandi minimal 6 karakter', 'value' => 0]);
+    }
+    // Domain tanpa record MX hampir pasti email palsu (mis. dayat@11.com).
+    if (!checkdnsrr(substr(strrchr($emaile, '@'), 1), 'MX')) {
+      return response()->json(['message' => 'Domain email tidak valid atau tidak aktif', 'value' => 0]);
+    }
     $data=new Member();
-    $cekemail= Member::where('emaile',$request->emaile)->first();
+    $cekemail= Member::where('emaile',$emaile)->first();
     if($cekemail){
       return response()->json(
         [
           'message'=> 'Email Existing',
-          'value'=>0 
+          'value'=>0
         ]
         );
     }else{
       $tanggal=Date('Y-m-d');
       $data->tanggal=$tanggal;
-      $data->name=$request->input('name');
-      $data->emaile=$request->input('emaile');
+      $data->name=$name;
+      $data->emaile=$emaile;
       $data->hp=$request->input('hp');
       //$data->address=$request->input('address');
      // $data->passe=Hash::make($request->input('passe'));
-      $data->passe=md5(sha1($request->input('passe')) );
+      $data->passe=md5(sha1($passe));
       $data->count=0;
       $data->admin=0;
       $data->confirmed="no";
@@ -5735,22 +5834,118 @@ public function confirmasipembayaran(Request $request){
       $data->mati=0;
       $data->coba=0;
       $data->kode='';
-    
+
       $data->foto='';
       $data->tentang='';
       $data->job='';
       $data->id_token=$request->id_token;
       $data->save();
+      // Kirim email verifikasi (fail-soft — ada jalur kirim ulang di /masuk).
+      $this->kirimEmailVerifikasiKe($data);
       return response()->json(
         [
           'message'=> 'Registration Success',
           'value'=>1
         ]
         );
-      
+
     }
 
 
+  }
+
+  // Klik link verifikasi dari email: tandai confirmed='yes'. GET supaya link
+  // bisa dibuka langsung; halaman web /verifikasi yang memanggil endpoint ini.
+  public function verifikasiemail(Request $request){
+    $token = (string)$request->query('token', '');
+    $row = $token === '' ? null : DB::table('email_tokens')
+      ->where('jenis', 'verify')
+      ->where('token_hash', hash('sha256', $token))
+      ->first();
+    if (!$row) {
+      return response()->json(['value' => '0', 'pesan' => 'Token tidak dikenal atau sudah dipakai']);
+    }
+    if (strtotime((string)$row->created_at) < time() - 24 * 3600) {
+      DB::table('email_tokens')->where('id', $row->id)->delete();
+      return response()->json(['value' => '0', 'pesan' => 'Token kedaluwarsa — silakan kirim ulang email verifikasi']);
+    }
+    DB::table('member')->where('emaile', $row->email)->update(['confirmed' => 'yes']);
+    DB::table('email_tokens')->where('id', $row->id)->delete();
+    return response()->json(['value' => '1', 'pesan' => 'Email berhasil diverifikasi. Silakan masuk.']);
+  }
+
+  public function kirimulangverifikasi(Request $request){
+    $emaile = strtolower(trim((string)$request->input('emaile')));
+    $generik = ['value' => '1', 'pesan' => 'Jika email terdaftar dan belum terverifikasi, email verifikasi telah dikirim'];
+    if (!filter_var($emaile, FILTER_VALIDATE_EMAIL)) {
+      return response()->json(['value' => '0', 'pesan' => 'Format email tidak valid']);
+    }
+    $m = Member::where('emaile', $emaile)->first();
+    // Anti-enumerasi: email tak dikenal / sudah terverifikasi dibalas sukses
+    // generik tanpa mengirim apa pun.
+    if (!$m || $m->confirmed === 'yes') {
+      return response()->json($generik);
+    }
+    $akhir = DB::table('email_tokens')->where(['email' => $emaile, 'jenis' => 'verify'])->max('created_at');
+    if ($akhir && strtotime((string)$akhir) > time() - 60) {
+      return response()->json(['value' => '0', 'pesan' => 'Tunggu 1 menit sebelum mengirim ulang email']);
+    }
+    $this->kirimEmailVerifikasiKe($m);
+    return response()->json($generik);
+  }
+
+  public function lupapassword(Request $request){
+    $emaile = strtolower(trim((string)$request->input('emaile')));
+    // Selalu generik — tidak membocorkan email mana yang terdaftar.
+    $generik = ['value' => '1', 'pesan' => 'Jika email terdaftar, tautan reset kata sandi telah dikirim'];
+    if (!filter_var($emaile, FILTER_VALIDATE_EMAIL)) {
+      return response()->json($generik);
+    }
+    $m = Member::where('emaile', $emaile)->first();
+    if (!$m) {
+      return response()->json($generik);
+    }
+    $akhir = DB::table('email_tokens')->where(['email' => $emaile, 'jenis' => 'reset'])->max('created_at');
+    if ($akhir && strtotime((string)$akhir) > time() - 60) {
+      return response()->json($generik);
+    }
+    $token = $this->buatTokenEmail($emaile, 'reset');
+    $link = rtrim(env('WEB_URL', 'https://pohonasuh.io'), '/') . '/reset-password?token=' . $token;
+    $this->kirimEmailResend(
+      $emaile,
+      'Reset Kata Sandi — Pohon Asuh',
+      $this->templateEmail(
+        'Atur Ulang Kata Sandi',
+        'Halo '.htmlspecialchars($m->name, ENT_QUOTES, 'UTF-8').', kami menerima permintaan reset kata sandi untuk akun Anda. Klik tombol berikut untuk mengatur kata sandi baru:',
+        'Atur Ulang Kata Sandi',
+        $link,
+        'Tautan berlaku 60 menit dan hanya bisa dipakai sekali. Jika bukan Anda yang meminta, abaikan email ini — kata sandi Anda tidak berubah.'
+      )
+    );
+    return response()->json($generik);
+  }
+
+  public function resetpassword(Request $request){
+    $token = (string)$request->input('token', '');
+    $passe = (string)$request->input('passe', '');
+    $row = $token === '' ? null : DB::table('email_tokens')
+      ->where('jenis', 'reset')
+      ->where('token_hash', hash('sha256', $token))
+      ->first();
+    if (!$row) {
+      return response()->json(['value' => '0', 'pesan' => 'Token tidak dikenal atau sudah dipakai']);
+    }
+    if (strtotime((string)$row->created_at) < time() - 3600) {
+      DB::table('email_tokens')->where('id', $row->id)->delete();
+      return response()->json(['value' => '0', 'pesan' => 'Token kedaluwarsa — silakan minta tautan reset baru']);
+    }
+    if (strlen($passe) < 6) {
+      return response()->json(['value' => '0', 'pesan' => 'Kata sandi minimal 6 karakter']);
+    }
+    // Hash legacy md5(sha1) — sama dengan register/loginuser.
+    DB::table('member')->where('emaile', $row->email)->update(['passe' => md5(sha1($passe))]);
+    DB::table('email_tokens')->where('id', $row->id)->delete();
+    return response()->json(['value' => '1', 'pesan' => 'Kata sandi berhasil diubah. Silakan masuk.']);
   }
 
 
@@ -5816,6 +6011,15 @@ public function confirmasipembayaran(Request $request){
                           ]
                           );
                         }else{
+                            // Gerbang verifikasi email: dicek setelah password
+                            // cocok agar tidak membocorkan status akun.
+                            if ($ceklogin->confirmed !== 'yes') {
+                                return response()->json([
+                                    'value' => '201',
+                                    'pesan' => 'Email belum diverifikasi. Silakan cek email Anda.',
+                                    'email' => $ceklogin->emaile,
+                                ]);
+                            }
                              $ceklogin->id_token=$request->id_token;
                       $ceklogin->update();
 
@@ -5878,6 +6082,15 @@ public function confirmasipembayaran(Request $request){
                           ]
                           );
                         }else{
+                            // Gerbang verifikasi email: dicek setelah password
+                            // cocok agar tidak membocorkan status akun.
+                            if ($ceklogin->confirmed !== 'yes') {
+                                return response()->json([
+                                    'value' => '201',
+                                    'pesan' => 'Email belum diverifikasi. Silakan cek email Anda.',
+                                    'email' => $ceklogin->emaile,
+                                ]);
+                            }
                               $ceklogin->id_token=$request->id_token;
                       $ceklogin->update();
 

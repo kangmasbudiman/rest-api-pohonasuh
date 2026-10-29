@@ -35,6 +35,11 @@ Route::get('tes', [ApiController::class, 'tes']);
 Route::post('tambah-users', [UsersController::class, 'store']);
 Route::post('loginuser', [ApiController::class, 'loginuser']);
 Route::post('register', [ApiController::class, 'register']);
+/* Verifikasi email & reset password (via Resend) */
+Route::get('verifikasiemail', [ApiController::class, 'verifikasiemail']);
+Route::post('kirimulangverifikasi', [ApiController::class, 'kirimulangverifikasi']);
+Route::post('lupapassword', [ApiController::class, 'lupapassword']);
+Route::post('resetpassword', [ApiController::class, 'resetpassword']);
 Route::get('blog', [ApiController::class, 'blog']);
 Route::post('updateduration', [ApiController::class, 'updateduration']);
 Route::post('pohon', [ApiController::class, 'pohon']);
