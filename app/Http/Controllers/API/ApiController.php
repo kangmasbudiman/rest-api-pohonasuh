@@ -5153,7 +5153,8 @@ public function confirmasipembayaran(Request $request){
         'cover' => $data->cover ? $request->getSchemeAndHttpHost() . '/assets/' . $data->cover : '',
         'kategori' => $data->kategori,
         'nama' => $data->nama,
-        
+        'slug' => $data->slug,
+
          ]);
     }else{
           return response()->json([
@@ -5183,6 +5184,7 @@ public function confirmasipembayaran(Request $request){
           $b['cover'] = $k->cover ? $request->getSchemeAndHttpHost() . '/assets/' . $k->cover : '';
           $b['kategori'] = $k->kategori;
           $b['nama'] = $k->nama;
+          $b['slug'] = $k->slug;
           $b['created_at'] = $k->created_at->format('d/M/Y h:m:s');
                   
           array_push($items, $b);
@@ -5210,6 +5212,7 @@ public function confirmasipembayaran(Request $request){
           $b['cover'] = $k->cover ? $request->getSchemeAndHttpHost() . '/assets/' . $k->cover : '';
           $b['kategori'] = $k->kategori;
           $b['nama'] = $k->nama;
+          $b['slug'] = $k->slug;
           $b['created_at'] = $k->created_at->format('d/M/Y h:m:s');
                   
           array_push($items, $b);
@@ -5222,13 +5225,17 @@ public function confirmasipembayaran(Request $request){
       }
   }
 
-  // Satu artikel by id untuk halaman detail web (mobile mengirim konten
+  // Satu artikel by id/slug untuk halaman detail web (mobile mengirim konten
   // penuh via query params — web butuh endpoint sendiri). created_at
   // dikirim mentah Y-m-d H:i:s karena format 'd/M/Y h:m:s' di blog()/
   // blogbyfilter() rusak (m = nama bulan, bukan menit).
   public function blogbyid(Request $request){
       $k = Blog::join('member','blog.idmember','=','member.id')
-        ->where('blog.id',$request->id)
+        ->when($request->filled('slug'), function ($q) use ($request) {
+            $q->where('blog.slug', $request->slug);
+        }, function ($q) use ($request) {
+            $q->where('blog.id', $request->id);
+        })
         ->first(['blog.*','member.name as nama']);
       if (!$k) {
           return response()->json(null, 404);
@@ -5241,6 +5248,7 @@ public function confirmasipembayaran(Request $request){
         'cover' => $k->cover ? $request->getSchemeAndHttpHost() . '/assets/' . $k->cover : '',
         'kategori' => $k->kategori,
         'nama' => $k->nama,
+        'slug' => $k->slug,
         'created_at' => $k->created_at ? $k->created_at->format('Y-m-d H:i:s') : null,
       ]);
   }
@@ -6371,6 +6379,7 @@ public function confirmasipembayaran(Request $request){
         $b['idpetugas'] = $k->idpetugas;
         $b['petugas'] = $petugas ? $petugas->name : '';
         $b['judul'] = $k->judul;
+        $b['slug'] = $k->slug;
         $b['jenis'] = $k->jenis;
         $b['desa'] = $k->desa ?: '';
         $b['tanggal'] = $k->tanggal instanceof \Carbon\Carbon ? $k->tanggal->format('Y-m-d') : (string)$k->tanggal;
@@ -6393,6 +6402,9 @@ public function confirmasipembayaran(Request $request){
         $q = LaporanKegiatan::query();
         if ($request->filled('id')) {
             $q->where('id', $request->id);
+        }
+        if ($request->filled('slug')) {
+            $q->where('slug', $request->slug);
         }
         if ($request->filled('idpetugas')) {
             $q->where('idpetugas', $request->idpetugas);
