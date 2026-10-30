@@ -243,6 +243,42 @@ class ApiController extends Controller
         return $plain;
     }
 
+    // Template email OTP — kode besar di tengah, tanpa tombol/tautan.
+    private function templateEmailOtp($judul, $isi, $kode, $catatan){
+        return '<!doctype html><html><body style="margin:0;padding:0;background:#f4f6f5;font-family:Segoe UI,Roboto,Helvetica,Arial,sans-serif;">'
+            .'<table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center" style="padding:32px 12px;">'
+            .'<table role="presentation" cellpadding="0" cellspacing="0" style="max-width:560px;width:100%;background:#ffffff;border-radius:12px;overflow:hidden;">'
+            .'<tr><td style="background:#059669;padding:20px 28px;font-size:18px;font-weight:700;color:#ffffff;">&#127807; Pohon Asuh</td></tr>'
+            .'<tr><td style="padding:28px;">'
+            .'<h2 style="margin:0 0 12px;font-size:18px;color:#064e3b;">'.$judul.'</h2>'
+            .'<p style="margin:0 0 20px;font-size:14px;line-height:22px;color:#374151;">'.$isi.'</p>'
+            .'<p style="margin:0 0 24px;text-align:center;"><span style="display:inline-block;letter-spacing:10px;font-size:32px;font-weight:700;color:#064e3b;background:#ecfdf5;border:1px solid #a7f3d0;border-radius:10px;padding:14px 20px 14px 30px;">'.htmlspecialchars($kode, ENT_QUOTES, 'UTF-8').'</span></p>'
+            .'<p style="margin:0;font-size:12px;line-height:18px;color:#6b7280;">'.$catatan.'</p>'
+            .'</td></tr>'
+            .'<tr><td style="padding:16px 28px;background:#f9fafb;font-size:11px;color:#9ca3af;">Email otomatis — mohon jangan dibalas. Pohon Asuh &middot; pohonasuh.io</td></tr>'
+            .'</table></td></tr></table></body></html>';
+    }
+
+    // Buat OTP reset 6 digit. Berbeda dari token panjang, kode OTP hanya
+    // punya 1 juta kombinasi — hash sha256 polos bisa di-brute force offline,
+    // maka kode di-salt APP_KEY sebelum dihash; percobaan salah dibatasi 5x
+    // (kolom attempts) dan masa berlaku hanya 10 menit.
+    private function buatOtpReset($email){
+        DB::table('email_tokens')->where(['email' => $email, 'jenis' => 'reset'])->delete();
+        $kode = str_pad((string) random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+        DB::table('email_tokens')->insert([
+            'email' => $email,
+            'jenis' => 'reset',
+            'token_hash' => hash('sha256', $email . '|reset|' . $kode . '|' . env('APP_KEY')),
+            'attempts' => 0,
+            'created_at' => now(),
+        ]);
+        if (app()->environment('local')) {
+            Log::info("otp reset untuk {$email}: {$kode}");
+        }
+        return $kode;
+    }
+
     // Invoice order versi acak (10 karakter alfanumerik tanpa karakter ambigu,
     // pola sama dengan order dari app) — tidak berurutan sehingga nomor order
     // tidak membocorkan volume transaksi. Kolom invoice varchar(15): "#" + 10.
@@ -5916,10 +5952,11 @@ public function confirmasipembayaran(Request $request){
     return response()->json($generik);
   }
 
+  // Minta kode OTP reset (6 digit, berlaku 10 menit). Respons selalu generik
+  // — tidak membocorkan email mana yang terdaftar (anti-enumerasi).
   public function lupapassword(Request $request){
     $emaile = strtolower(trim((string)$request->input('emaile')));
-    // Selalu generik — tidak membocorkan email mana yang terdaftar.
-    $generik = ['value' => '1', 'pesan' => 'Jika email terdaftar, tautan reset kata sandi telah dikirim'];
+    $generik = ['value' => '1', 'pesan' => 'Jika email terdaftar, kode reset telah dikirim ke email Anda'];
     if (!filter_var($emaile, FILTER_VALIDATE_EMAIL)) {
       return response()->json($generik);
     }
@@ -5931,35 +5968,45 @@ public function confirmasipembayaran(Request $request){
     if ($akhir && strtotime((string)$akhir) > time() - 60) {
       return response()->json($generik);
     }
-    $token = $this->buatTokenEmail($emaile, 'reset');
-    $link = rtrim(env('WEB_URL', 'https://pohonasuh.io'), '/') . '/reset-password?token=' . $token;
+    $kode = $this->buatOtpReset($emaile);
     $this->kirimEmailResend(
       $emaile,
-      'Reset Kata Sandi — Pohon Asuh',
-      $this->templateEmail(
-        'Atur Ulang Kata Sandi',
-        'Halo '.htmlspecialchars($m->name, ENT_QUOTES, 'UTF-8').', kami menerima permintaan reset kata sandi untuk akun Anda. Klik tombol berikut untuk mengatur kata sandi baru:',
-        'Atur Ulang Kata Sandi',
-        $link,
-        'Tautan berlaku 60 menit dan hanya bisa dipakai sekali. Jika bukan Anda yang meminta, abaikan email ini — kata sandi Anda tidak berubah.'
+      'Kode Reset Kata Sandi — Pohon Asuh',
+      $this->templateEmailOtp(
+        'Kode Reset Kata Sandi',
+        'Halo '.htmlspecialchars($m->name, ENT_QUOTES, 'UTF-8').', kami menerima permintaan reset kata sandi untuk akun Anda. Masukkan kode berikut pada halaman reset kata sandi:',
+        $kode,
+        'Kode berlaku 10 menit dan hanya bisa dipakai sekali. Jangan bagikan kode ini kepada siapa pun, termasuk pihak yang mengaku dari Pohon Asuh. Jika bukan Anda yang meminta, abaikan email ini — kata sandi Anda tidak berubah.'
       )
     );
     return response()->json($generik);
   }
 
+  // Set kata sandi baru dengan OTP: {emaile, kode, passe}. Kode salah maksimal
+  // 5x (token dihapus setelahnya), kedaluwarsa 10 menit, sekali pakai.
   public function resetpassword(Request $request){
-    $token = (string)$request->input('token', '');
+    $emaile = strtolower(trim((string)$request->input('emaile', '')));
+    $kode = trim((string)$request->input('kode', ''));
     $passe = (string)$request->input('passe', '');
-    $row = $token === '' ? null : DB::table('email_tokens')
-      ->where('jenis', 'reset')
-      ->where('token_hash', hash('sha256', $token))
-      ->first();
-    if (!$row) {
-      return response()->json(['value' => '0', 'pesan' => 'Token tidak dikenal atau sudah dipakai']);
+    if ($emaile === '' || strlen($kode) !== 6 || !ctype_digit($kode)) {
+      return response()->json(['value' => '0', 'pesan' => 'Kode tidak valid']);
     }
-    if (strtotime((string)$row->created_at) < time() - 3600) {
+    $row = DB::table('email_tokens')->where(['email' => $emaile, 'jenis' => 'reset'])->first();
+    if (!$row) {
+      return response()->json(['value' => '0', 'pesan' => 'Kode tidak dikenal atau sudah dipakai — silakan minta kode baru']);
+    }
+    if (strtotime((string)$row->created_at) < time() - 600) {
       DB::table('email_tokens')->where('id', $row->id)->delete();
-      return response()->json(['value' => '0', 'pesan' => 'Token kedaluwarsa — silakan minta tautan reset baru']);
+      return response()->json(['value' => '0', 'pesan' => 'Kode kedaluwarsa — silakan minta kode baru']);
+    }
+    if ((int)$row->attempts >= 5) {
+      DB::table('email_tokens')->where('id', $row->id)->delete();
+      return response()->json(['value' => '0', 'pesan' => 'Terlalu banyak percobaan salah — silakan minta kode baru']);
+    }
+    $hash = hash('sha256', $emaile . '|reset|' . $kode . '|' . env('APP_KEY'));
+    if (!hash_equals((string)$row->token_hash, $hash)) {
+      DB::table('email_tokens')->where('id', $row->id)->increment('attempts');
+      return response()->json(['value' => '0', 'pesan' => 'Kode OTP salah']);
     }
     if (strlen($passe) < 6) {
       return response()->json(['value' => '0', 'pesan' => 'Kata sandi minimal 6 karakter']);
