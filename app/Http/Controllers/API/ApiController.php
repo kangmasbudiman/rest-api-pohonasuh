@@ -2527,6 +2527,7 @@ public function getconfirmasi(Request $request){
                  $b['tanggal'] = $k->tanggal;
                  $b['jml_pohon'] = $k->jml_pohon;
                  $b['confirmation'] = $k->confirmation;
+                 $b['methode'] = $k->methode;
                  $b['created_at'] = $k->created_at;
                  $b['foto'] = !empty($k->foto)
                      ? $request->getSchemeAndHttpHost().str_replace('/index.php', '', $request->getBaseUrl()).'/upload/slider/'.$k->foto
