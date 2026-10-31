@@ -2097,14 +2097,24 @@ public function updateduration(Request $request){
   // (LPHD-MT/2026). Urut dihitung per kode desa+tahun dari certnum yang
   // sudah ada.
   private function certnumBaru($desa){
-    // kode cert eksplisit dari kelola lokasi (bila diisi) menang atas derivasi
+    // kode cert eksplisit dari kelola lokasi (bila diisi) menang atas derivasi.
+    // kode_cert sudah berisi segmen lengkap (LPHN-SK, LPHD-LH, KPHA-RK — pola
+    // sertifikat lama 001/LPHN-SK/2021), jadi JANGAN tambah prefix lagi:
+    // 'LPHD-'+'LPHN-SK' = 21 karakter meluap kolom certnum varchar(20)
+    // (error 1406 → verifikasi 500). Prefix hanya utk kode tanpa lembaga
+    // (mis. HA-GG → LPHD-HA-GG, mengikuti 001/LPHD-HA-GG/2026 yg sudah terbit).
     $kodes = trim((string)Desa::where('nama', $desa)->value('kode_cert'));
     if ($kodes !== '') {
       $kode = strtoupper($kodes);
+      if (!preg_match('/^K?LPH/', $kode)) {
+        $kode = 'LPHD-'.$kode;
+      }
+      // muat varchar(20): 3 urut + '/' + kode + '/' + 4 tahun → kode maks 11
+      $kode = substr($kode, 0, 11);
       $tahun = date('Y');
-      $ada = Dataadopsi::where('certnum', 'like', '%/LPHD-'.$kode.'/'.$tahun)
+      $ada = Dataadopsi::where('certnum', 'like', '%/'.$kode.'/'.$tahun)
         ->distinct()->count('certnum');
-      return sprintf('%03d/LPHD-%s/%s', $ada + 1, $kode, $tahun);
+      return sprintf('%03d/%s/%s', $ada + 1, $kode, $tahun);
     }
     $kata = preg_split('/\s+/', trim((string)$desa));
     $kode = '';
@@ -2127,9 +2137,17 @@ public function updateduration(Request $request){
     if ($rows->isEmpty()) return;
     if (trim((string)$rows->first()->certnum) !== '') return;
     $certnum = $this->certnumBaru($rows->first()->desa);
-    foreach ($rows as $r) {
-      $r->certnum = $certnum;
-      $r->save();
+    // Jangan biarkan kegagalan penerbitan nomor (mis. kolom meluap) membatalkan
+    // respons verifikasi — dulu error 1406 di sini membuat endpoint 500 dan
+    // admin mengulang verifikasi berkali-kali. Order tetap 'yes'; nomor
+    // sertifikat di-backfill lazy oleh getconfirmasi.
+    try {
+      foreach ($rows as $r) {
+        $r->certnum = $certnum;
+        $r->save();
+      }
+    } catch (\Throwable $e) {
+      Log::error('isiCertnum gagal utk invoice '.$invoice.' ('.$certnum.'): '.$e->getMessage());
     }
   }
 
@@ -2513,6 +2531,19 @@ public function updateduration(Request $request){
 
 public function getconfirmasi(Request $request){
       $this->kedaluwarsaPembayaran();
+      // Backfill lazy: order terverifikasi ('yes') yang sertifikatnya gagal
+      // terbit saat verifikasi (error 1406 era prefix ganda) diterbitkan
+      // ulang di sini — donatur cukup membuka dashboard.
+      $kosong = Dataadopsi::whereIn('invoice', function ($q) {
+          $q->select('invoice')->from('confirmation')->where('confirmation', 'yes');
+        })
+        ->where(function ($q) {
+          $q->whereNull('certnum')->orWhere('certnum', '');
+        })
+        ->distinct()->pluck('invoice');
+    foreach ($kosong as $inv) {
+      $this->isiCertnum($inv);
+    }
 
       $data=Confirmasi::where('idpengasuh',$request->idmember)
       ->orderByDesc('id')
