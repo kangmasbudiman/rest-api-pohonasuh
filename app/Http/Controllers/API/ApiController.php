@@ -2035,6 +2035,36 @@ public function updateduration(Request $request){
 
   public function verivication(Request $request){
        $data=Confirmasi::find($request->id);
+       if(!$data){
+                  return response()->json(
+                        [
+                          'message'=> "Confirmation Not Found",
+                          'code'=>404
+                        ]
+                     );
+       }
+       // Idempoten: order yang sudah 'yes' (admin lain / webhook Mayar) tidak
+       // diverifikasi ulang — dulu klik "Verifikasi" berulang tetap mengirim
+       // Pesan + push sehingga donatur menerima notifikasi identik berkali-kali.
+       if($data->confirmation==="yes"){
+                  return response()->json(
+                        [
+                          'message'=> "Succes Verivication",
+                          'code'=>200
+                        ]
+                     );
+       }
+       // order 'cancel' (batal admin / kedaluwarsa) sudah kehilangan data
+       // adopsinya (pohon dikembalikan) — memaksa 'yes' hanya meninggalkan
+       // order rusak tanpa pohon.
+       if($data->confirmation==="cancel"){
+                  return response()->json(
+                        [
+                          'message'=> "Order sudah dibatalkan",
+                          'code'=>409
+                        ]
+                     );
+       }
                  $data->confirmation="yes";
                  $data->confirmationBy=$request->iduser;
                  $data->update();
@@ -2120,11 +2150,18 @@ public function updateduration(Request $request){
       ->where('created_at','>', now()->subDays(7))
       ->get();
     foreach ($konf as $k) {
-      // re-read terbaru: donor bisa saja barusan upload bukti / bayar mayar
-      $fresh = Confirmasi::find($k->id);
-      if (!$fresh || $fresh->confirmation !== 'no' || $fresh->foto) {
+      // Klaim atomik: getconfirmasi / pohon / pohonhighlight / filtertrees
+      // memanggil expiry ini hampir bersamaan saat halaman dibuka. Update
+      // bersyarat memastikan hanya satu request yang memproses (dan mengirim
+      // Pesan) — re-read biasa masih bisa lolos berbarengan.
+      $klaim = Confirmasi::where('id', $k->id)
+        ->where('confirmation','no')
+        ->where(function($q){ $q->whereNull('foto')->orWhere('foto',''); })
+        ->update(['confirmation' => 'cancel', 'confirmationBy' => 'expired']);
+      if (!$klaim) {
         continue;
       }
+      $fresh = Confirmasi::find($k->id);
       $adopsi = Dataadopsi::where('invoice',$fresh->invoice)->get();
       foreach ($adopsi as $a) {
         Fototaging::where('idadopsi',$a->id)->delete();
@@ -2140,9 +2177,6 @@ public function updateduration(Request $request){
         }
       }
       Dataadopsi::where('invoice',$fresh->invoice)->delete();
-      $fresh->confirmation = 'cancel';
-      $fresh->confirmationBy = 'expired';
-      $fresh->update();
 
       $pesan = new Pesan();
       $pesan->idmember = $fresh->idpengasuh;
