@@ -2130,24 +2130,29 @@ public function updateduration(Request $request){
     return sprintf('%03d/LPHD-%s/%s', $ada + 1, $kode, $tahun);
   }
 
-  // Isi certnum semua baris data_adopsi satu invoice (sekali saja; order
-  // satu sertifikat walaupun berisi beberapa pohon).
+  // Isi certnum baris data_adopsi satu invoice DIPER-DESA: satu order boleh
+  // berisi pohon dari beberapa lokasi dan tiap lokasi mendapat sertifikat
+  // sendiri (pola legacy — adopsi 7 pohon di 3 desa → 3 sertifikat, tiap
+  // lembar hanya memuat pohon desa itu; dataSertifikat menghitung jml pohon
+  // & lokasi per certnum). Grup yang sudah bernomor tidak diterbitkan ulang.
   private function isiCertnum($invoice){
-    $rows = Dataadopsi::where('invoice', $invoice)->get();
+    $rows = Dataadopsi::where('invoice', $invoice)->orderBy('id')->get();
     if ($rows->isEmpty()) return;
-    if (trim((string)$rows->first()->certnum) !== '') return;
-    $certnum = $this->certnumBaru($rows->first()->desa);
     // Jangan biarkan kegagalan penerbitan nomor (mis. kolom meluap) membatalkan
     // respons verifikasi — dulu error 1406 di sini membuat endpoint 500 dan
     // admin mengulang verifikasi berkali-kali. Order tetap 'yes'; nomor
     // sertifikat di-backfill lazy oleh getconfirmasi.
     try {
-      foreach ($rows as $r) {
-        $r->certnum = $certnum;
-        $r->save();
+      foreach ($rows->groupBy('desa') as $desa => $grp) {
+        if (trim((string)$grp->first()->certnum) !== '') continue;
+        $certnum = $this->certnumBaru($desa);
+        foreach ($grp as $r) {
+          $r->certnum = $certnum;
+          $r->save();
+        }
       }
     } catch (\Throwable $e) {
-      Log::error('isiCertnum gagal utk invoice '.$invoice.' ('.$certnum.'): '.$e->getMessage());
+      Log::error('isiCertnum gagal utk invoice '.$invoice.': '.$e->getMessage());
     }
   }
 
