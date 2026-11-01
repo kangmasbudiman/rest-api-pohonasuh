@@ -2147,16 +2147,24 @@ public function updateduration(Request $request){
     // admin mengulang verifikasi berkali-kali. Order tetap 'yes'; nomor
     // sertifikat di-backfill lazy oleh getconfirmasi.
     try {
-      $perGrup = $rows->groupBy(function ($r) {
-        return $r->desa.'|'.trim((string)$r->nama);
-      });
-      foreach ($perGrup as $grp) {
-        if (trim((string)$grp->first()->certnum) !== '') continue;
-        $certnum = $this->certnumBaru($grp->first()->desa);
-        foreach ($grp as $r) {
-          $r->certnum = $certnum;
-          $r->save();
+      // Serialisasi antar proses: verifikasi paralel dua order desa sama
+      // bisa menghitung urut kembar (hitung-lalu-tulis tidak atomik) dan
+      // dua sertifikat berbeda berbagi nomor.
+      $terkunci = DB::statement('SELECT GET_LOCK(?, 5)', ['isi_certnum']);
+      try {
+        $perGrup = $rows->groupBy(function ($r) {
+          return $r->desa.'|'.trim((string)$r->nama);
+        });
+        foreach ($perGrup as $grp) {
+          if (trim((string)$grp->first()->certnum) !== '') continue;
+          $certnum = $this->certnumBaru($grp->first()->desa);
+          foreach ($grp as $r) {
+            $r->certnum = $certnum;
+            $r->save();
+          }
         }
+      } finally {
+        if ($terkunci) DB::statement('SELECT RELEASE_LOCK(?)', ['isi_certnum']);
       }
     } catch (\Throwable $e) {
       Log::error('isiCertnum gagal utk invoice '.$invoice.': '.$e->getMessage());
@@ -2671,6 +2679,9 @@ public function confirmasipembayaran(Request $request){
             // pakai nama penerima hadiah dari basket bila diisi, selain itu
             // nama pemesan.
             $nama=trim((string)($k->nama ?? ''));
+            // basket.nama terisi = adopsi hadiah → tandai gfrom utk deteksi
+            // UI (pohon sendiri juga bernama lengkap sejak checkout baru).
+            $hadiah=$nama!=='' ? 1 : 0;
             if($nama===''){ $nama=$request->input('name'); }
             $price=$carihargaperpohon->subtotal;
             $cur="IDR";
@@ -2695,7 +2706,7 @@ public function confirmasipembayaran(Request $request){
             $data->cur="IDR";
             $data->methode="Transfer";
             $data->tgl_adopt=$tgl_adopt;
-            $data->gfrom=0;
+            $data->gfrom=$hadiah;
             $data->certnum="";
             $data->memo=$memo;
             $data->admin=0;
@@ -2782,6 +2793,9 @@ public function confirmasipembayaran(Request $request){
             // pakai nama penerima hadiah dari basket bila diisi, selain itu
             // nama pemesan.
             $nama=trim((string)($k->nama ?? ''));
+            // basket.nama terisi = adopsi hadiah → tandai gfrom utk deteksi
+            // UI (pohon sendiri juga bernama lengkap sejak checkout baru).
+            $hadiah=$nama!=='' ? 1 : 0;
             if($nama===''){ $nama=$request->input('name'); }
             $price=$carihargaperpohon->subtotal;
             $cur="IDR";
@@ -2806,7 +2820,7 @@ public function confirmasipembayaran(Request $request){
             $data->cur="IDR";
             $data->methode="Transfer";
             $data->tgl_adopt=$tgl_adopt;
-            $data->gfrom=0;
+            $data->gfrom=$hadiah;
             $data->certnum="";
             $data->memo=$memo;
             $data->admin=0;
