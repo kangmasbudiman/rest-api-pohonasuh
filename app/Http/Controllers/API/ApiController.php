@@ -2092,10 +2092,17 @@ public function updateduration(Request $request){
                      );
   }
 
-  // Nomor sertifikat: {urut 3 digit}/LPHD-{inisial desa}/{tahun} — mengikuti
-  // pola data lama (KPHD-RK/2019 dst.) dan contoh template baru
-  // (LPHD-MT/2026). Urut dihitung per kode desa+tahun dari certnum yang
-  // sudah ada.
+  // Nomor sertifikat: {urut 3 digit}/{kode desa}/{tahun} — mengikuti pola
+  // data lama (KPHD-RK/2019, 001/LPHN-SK/2021). Urut = nomor TERBESAR yang
+  // sudah terbit utk kode desa+tahun + 1 (bukan hitungan baris — nomor bisa
+  // bolong bila sertifikat diterbitkan ulang, hitungan akan menabrak nomor
+  // yang sudah dipakai).
+  private function urutCertnum($kode, $tahun){
+    return 1 + (int) Dataadopsi::where('certnum', 'like', '%/'.$kode.'/'.$tahun)
+      ->selectRaw("COALESCE(MAX(CAST(SUBSTRING_INDEX(certnum, '/', 1) AS UNSIGNED)), 0) AS m")
+      ->value('m');
+  }
+
   private function certnumBaru($desa){
     // kode cert eksplisit dari kelola lokasi (bila diisi) menang atas derivasi.
     // kode_cert sudah berisi segmen lengkap (LPHN-SK, LPHD-LH, KPHA-RK — pola
@@ -2112,9 +2119,7 @@ public function updateduration(Request $request){
       // muat varchar(20): 3 urut + '/' + kode + '/' + 4 tahun → kode maks 11
       $kode = substr($kode, 0, 11);
       $tahun = date('Y');
-      $ada = Dataadopsi::where('certnum', 'like', '%/'.$kode.'/'.$tahun)
-        ->distinct()->count('certnum');
-      return sprintf('%03d/%s/%s', $ada + 1, $kode, $tahun);
+      return sprintf('%03d/%s/%s', $this->urutCertnum($kode, $tahun), $kode, $tahun);
     }
     $kata = preg_split('/\s+/', trim((string)$desa));
     $kode = '';
@@ -2125,20 +2130,19 @@ public function updateduration(Request $request){
     }
     $kode = strtoupper($kode !== '' ? $kode : 'XX');
     $tahun = date('Y');
-    $ada = Dataadopsi::where('certnum', 'like', '%/LPHD-'.$kode.'/'.$tahun)
-      ->distinct()->count('certnum');
-    return sprintf('%03d/LPHD-%s/%s', $ada + 1, $kode, $tahun);
+    $kode = 'LPHD-'.$kode;
+    return sprintf('%03d/%s/%s', $this->urutCertnum($kode, $tahun), $kode, $tahun);
   }
 
-  // Isi certnum baris data_adopsi satu invoice per DESA + PENERIMA: satu
-  // order boleh berisi pohon dari beberapa lokasi dan tiap lokasi mendapat
-  // sertifikat sendiri (pola legacy — adopsi 7 pohon di 3 desa → 3
-  // sertifikat). Adopsi hadiah (nama penerima lain) juga mendapat lembar
-  // sendiri DALAM desa yang sama — dulu pohon hadiah dan pohon sendiri
-  // berbagi nomor sehingga sertifikat menyatakan penerima hadiah
-  // mengadopsi pohon milik pengadopsi. Urutan nomor tetap per desa
-  // (certnumBaru), pemisahan hanya pada penerbitan. Grup yang sudah
-  // bernomor tidak diterbitkan ulang.
+  // Isi certnum baris data_adopsi satu invoice per DESA + PENERIMA + DURASI:
+  // satu order boleh berisi pohon dari beberapa lokasi dan tiap lokasi
+  // mendapat sertifikat sendiri (pola legacy — adopsi 7 pohon di 3 desa →
+  // 3 sertifikat). Adopsi hadiah (nama penerima lain) juga mendapat lembar
+  // sendiri DALAM desa yang sama. Pohon berdurasi beda dipisah pula karena
+  // sertifikat hanya memuat satu masa berlaku — digabung, tanggal tercetak
+  // menyesatkan (pohon 3 tahun ikut tercetak 1 tahun, atau sebaliknya).
+  // Urutan nomor tetap per desa (certnumBaru). Grup yang sudah bernomor
+  // tidak diterbitkan ulang.
   private function isiCertnum($invoice){
     $rows = Dataadopsi::where('invoice', $invoice)->orderBy('id')->get();
     if ($rows->isEmpty()) return;
@@ -2153,7 +2157,7 @@ public function updateduration(Request $request){
       $terkunci = DB::statement('SELECT GET_LOCK(?, 5)', ['isi_certnum']);
       try {
         $perGrup = $rows->groupBy(function ($r) {
-          return $r->desa.'|'.trim((string)$r->nama);
+          return $r->desa.'|'.trim((string)$r->nama).'|'.(int)$r->dur;
         });
         foreach ($perGrup as $grp) {
           if (trim((string)$grp->first()->certnum) !== '') continue;
