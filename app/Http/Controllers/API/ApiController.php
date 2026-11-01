@@ -369,12 +369,14 @@ class ApiController extends Controller
               'data_pohon.localname', 'data_pohon.desa']);
 
       $items = array();
+      $labelDesa = Desa::pluck('label', 'nama'); // label tampilan (bukan slug)
       foreach ($rows as $k) {
           $b['idadopsi'] = $k->id;
           $b['idpohon'] = $k->idpohon;
           $b['proses'] = (int) $k->proses;
           $b['localname'] = $k->localname;
           $b['desa'] = $k->desa;
+          $b['desa_label'] = $labelDesa->get($k->desa) ?: $k->desa;
           $b['foto'] = Fototaging::where('idadopsi', $k->id)
               ->orderBy('id')
               ->get(['id', 'urlGambar', 'tanggal'])
@@ -1806,6 +1808,9 @@ public function allcertificate(){
       ->where('data_adopsi.pengasuh',$iduser)
       ->get(['data_adopsi.*','data_pohon.localname','data_pohon.foto_pohon']);
       if(count($data)>0){
+        // Label tampilan desa (kelola lokasi, mis. "Pondok Parian Lunang") —
+        // data_adopsi.desa menyimpan nama internal satu kata.
+        $labelDesa = Desa::pluck('label', 'nama');
         $items = array();
         foreach ($data as $k) {
           $b['id'] = $k->id;
@@ -1827,6 +1832,7 @@ public function allcertificate(){
           $b['created_at']=$k->created_at->format('d-M-Y h:m:s');
           $b['foto_pohon']=$k->foto_pohon;
           $b['desa']=$k->desa;
+          $b['desa_label']=$labelDesa->get($k->desa) ?: $k->desa;
           $b['tgl_exp']=$k->tgl_exp;
           $cekconfirm=Confirmasi::where('invoice',$k->invoice)->first();
           if($cekconfirm){
@@ -3626,6 +3632,8 @@ public function confirmasipembayaran(Request $request){
               ? $request->getSchemeAndHttpHost().str_replace('/index.php', '', $request->getBaseUrl()).'/upload/slider/'.$fotopembayaran
               : "";
           $b['desa']=$k->desa;
+          // label tampilan desa (kelola lokasi) — desa internal satu kata
+          $b['desa_label']=$desaRow && $desaRow->label ? $desaRow->label : $k->desa;
           $b['kecamatan']=$desaRow ? $desaRow->kecamatan : "";
           $b['kabupaten']=$desaRow ? $desaRow->kabupaten : "";
           $b['provinsi']=$desaRow ? $desaRow->provinsi : "";
@@ -3704,6 +3712,9 @@ public function confirmasipembayaran(Request $request){
       ->orderBy('data_adopsi.id','desc')
       ->get(['data_adopsi.*','data_pohon.localname','data_pohon.foto_pohon']);
       if(count($data)>0){
+        // Label tampilan desa (kelola lokasi, mis. "Pondok Parian Lunang") —
+        // data_adopsi.desa menyimpan nama internal satu kata.
+        $labelDesa = Desa::pluck('label', 'nama');
         $items = array();
         foreach ($data as $k) {
           $b['id'] = $k->id;
@@ -3725,6 +3736,7 @@ public function confirmasipembayaran(Request $request){
           $b['created_at']=$k->created_at->format('d-M-Y h:m:s');
           $b['foto_pohon']=$k->foto_pohon;
           $b['desa']=$k->desa;
+          $b['desa_label']=$labelDesa->get($k->desa) ?: $k->desa;
           $b['tgl_exp']=$k->tgl_exp;
           $cekconfirm=Confirmasi::where('invoice',$k->invoice)->first();
           if($cekconfirm){
@@ -5179,6 +5191,7 @@ public function confirmasipembayaran(Request $request){
       ->join('data_pohon', 'data_pohon.idpohon', '=', 'data_adopsi.idpohon')
       ->where('data_adopsi.certnum', $certnum)
       ->first(['data_adopsi.*', 'desa.provinsi', 'desa.kabupaten', 'desa.kecamatan',
+        'desa.label AS desa_label',
         'data_pohon.localname', 'data_pohon.species', 'data_pohon.foto_pohon']);
     if (!$da || trim((string)$da->certnum) === '') {
       return null;
