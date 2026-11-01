@@ -2130,11 +2130,15 @@ public function updateduration(Request $request){
     return sprintf('%03d/LPHD-%s/%s', $ada + 1, $kode, $tahun);
   }
 
-  // Isi certnum baris data_adopsi satu invoice DIPER-DESA: satu order boleh
-  // berisi pohon dari beberapa lokasi dan tiap lokasi mendapat sertifikat
-  // sendiri (pola legacy — adopsi 7 pohon di 3 desa → 3 sertifikat, tiap
-  // lembar hanya memuat pohon desa itu; dataSertifikat menghitung jml pohon
-  // & lokasi per certnum). Grup yang sudah bernomor tidak diterbitkan ulang.
+  // Isi certnum baris data_adopsi satu invoice per DESA + PENERIMA: satu
+  // order boleh berisi pohon dari beberapa lokasi dan tiap lokasi mendapat
+  // sertifikat sendiri (pola legacy — adopsi 7 pohon di 3 desa → 3
+  // sertifikat). Adopsi hadiah (nama penerima lain) juga mendapat lembar
+  // sendiri DALAM desa yang sama — dulu pohon hadiah dan pohon sendiri
+  // berbagi nomor sehingga sertifikat menyatakan penerima hadiah
+  // mengadopsi pohon milik pengadopsi. Urutan nomor tetap per desa
+  // (certnumBaru), pemisahan hanya pada penerbitan. Grup yang sudah
+  // bernomor tidak diterbitkan ulang.
   private function isiCertnum($invoice){
     $rows = Dataadopsi::where('invoice', $invoice)->orderBy('id')->get();
     if ($rows->isEmpty()) return;
@@ -2143,9 +2147,12 @@ public function updateduration(Request $request){
     // admin mengulang verifikasi berkali-kali. Order tetap 'yes'; nomor
     // sertifikat di-backfill lazy oleh getconfirmasi.
     try {
-      foreach ($rows->groupBy('desa') as $desa => $grp) {
+      $perGrup = $rows->groupBy(function ($r) {
+        return $r->desa.'|'.trim((string)$r->nama);
+      });
+      foreach ($perGrup as $grp) {
         if (trim((string)$grp->first()->certnum) !== '') continue;
-        $certnum = $this->certnumBaru($desa);
+        $certnum = $this->certnumBaru($grp->first()->desa);
         foreach ($grp as $r) {
           $r->certnum = $certnum;
           $r->save();
