@@ -1148,6 +1148,11 @@ public function allcertificate(){
             return response()->json(['value' => 404, 'pesan' => 'Data adopsi tidak ditemukan']);
         }
         $data->nama = $request->input('nama', $data->nama);
+        // Nama sertifikat yang sudah dipisah dari nama tagging ikut dikoreksi
+        // agar perubahan admin tetap tampil di sertifikat.
+        if ($request->has('nama') && trim((string) $data->nama_sertifikat) !== '') {
+            $data->nama_sertifikat = $data->nama;
+        }
         $data->certnum = $request->input('certnum', $data->certnum);
         $data->dur = $request->input('dur', $data->dur);
         $data->price = $request->input('price', $data->price);
@@ -1816,7 +1821,9 @@ public function allcertificate(){
           $b['id'] = $k->id;
           $b['idpohon'] = $k->idpohon;
           $b['pengasuh']=$k->pengasuh;
-          $b['nama']=$k->nama;
+          $b['nama']=$this->namaSertifikat($k);
+          $b['nama_tagging']=$k->nama;
+          $b['nama_sertifikat']=$k->nama_sertifikat;
           $b['price']=$k->price;
           $b['cur']=$k->cur;
           $b['methode']=$k->methode;
@@ -1898,7 +1905,8 @@ public function allcertificate(){
                     $b['desa'] = $da->desa;
                     $b['memo'] = $da->memo;
                     $b['tgl_adopt'] = $da->tgl_adopt;
-                    $b['nama'] = $da->nama;
+                    $b['nama'] = $this->namaSertifikat($da);
+                    $b['nama_tagging'] = $da->nama;
                     $b['certnum'] = $da->certnum;
                     $dv = $infoDesa->get($da->desa);
                     $b['kecamatan'] = $dv->kecamatan ?? '-';
@@ -1993,6 +2001,11 @@ public function updateduration(Request $request){
       $data=Dataadopsi::find($k->id);
       $data->memo=$request->input('memo');
       $data->nama=$request->input('nama');
+      // Sertifikat hadiah pasca-tagging memakai nama_sertifikat sebagai
+      // override — koreksi admin harus ikut memperbarui nama yang tercetak.
+      if (trim((string) $data->nama_sertifikat) !== '') {
+        $data->nama_sertifikat = $data->nama;
+      }
       $data->update();
          }
       }
@@ -3720,7 +3733,9 @@ public function confirmasipembayaran(Request $request){
           $b['id'] = $k->id;
           $b['idpohon'] = $k->idpohon;
           $b['pengasuh']=$k->pengasuh;
-          $b['nama']=$k->nama;
+          $b['nama']=$this->namaSertifikat($k);
+          $b['nama_tagging']=$k->nama;
+          $b['nama_sertifikat']=$k->nama_sertifikat;
           $b['price']=$k->price;
           $b['cur']=$k->cur;
           $b['methode']=$k->methode;
@@ -5170,6 +5185,86 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value' => '200', 'pesan' => 'Success']);
   }
 
+  // Nama yang tercetak di sertifikat: override nama_sertifikat bila terisi,
+  // selain itu data_adopsi.nama. Dipakai semua jalur baca sisi pengadopsi.
+  private function namaSertifikat($row): string {
+    $override = trim((string) ($row->nama_sertifikat ?? ''));
+    return $override !== '' ? $override : trim((string) ($row->nama ?? ''));
+  }
+
+  // Revisi nama penerima sertifikat oleh pengadopsi sendiri (khusus adopsi
+  // hadiah, gfrom=1). Sebelum pohon masuk antrian tagging (proses < 2) nama
+  // ditulis ke data_adopsi.nama → papan tagging & sertifikat ikut berubah.
+  // Setelah masuk antrian (proses >= 2) nama tagging dikunci; revisi hanya
+  // menulis nama_sertifikat sehingga papan/BTOR/aplikasi petugas tetap
+  // memakai nama lama, sedangkan sertifikat memakai nama baru.
+  public function updatenamahadiah(Request $request){
+    $id = (int) $request->input('id');
+    $certnum = trim((string) $request->input('certnum'));
+    $nama = mb_substr(trim((string) $request->input('nama')), 0, 255);
+    if ($id <= 0 || $certnum === '') {
+      return response()->json(['value' => '400', 'pesan' => 'Data tidak lengkap'], 400);
+    }
+    if ($nama === '') {
+      return response()->json(['value' => '400', 'pesan' => 'Nama penerima wajib diisi'], 400);
+    }
+
+    $rows = Dataadopsi::where('certnum', $certnum)->get();
+    if ($rows->isEmpty()) {
+      return response()->json(['value' => '404', 'pesan' => 'Sertifikat tidak ditemukan'], 404);
+    }
+    foreach ($rows as $r) {
+      if ((int) $r->pengasuh !== $id) {
+        return response()->json(['value' => '403', 'pesan' => 'Bukan sertifikat Anda'], 403);
+      }
+    }
+
+    // Hanya adopsi hadiah. Fallback data lama: nama penerima berbeda dari
+    // nama akun pengadopsi (order lama belum punya gfrom).
+    $member = Member::find($id);
+    $namaMember = $member ? trim((string) $member->name) : '';
+    $hadiah = false;
+    foreach ($rows as $r) {
+      $namaTagging = trim((string) $r->nama);
+      if ((int) $r->gfrom === 1
+          || ($namaMember !== '' && $namaTagging !== '' && $namaTagging !== $namaMember)) {
+        $hadiah = true;
+        break;
+      }
+    }
+    if (!$hadiah) {
+      return response()->json([
+        'value' => '403',
+        'pesan' => 'Hanya nama penerima pada adopsi hadiah yang dapat diubah',
+      ], 403);
+    }
+
+    // Antrian tagging dimulai saat petugas mengajukan proses (proses=2,
+    // termasuk saat masih menunggu acc admin) hingga selesai (proses=3).
+    $terkunci = false;
+    foreach ($rows as $r) {
+      if ((int) $r->proses >= 2) { $terkunci = true; break; }
+    }
+
+    foreach ($rows as $r) {
+      if ($terkunci) {
+        $r->nama_sertifikat = $nama;
+      } else {
+        $r->nama = $nama;
+        $r->nama_sertifikat = null; // sertifikat mengikuti nama tagging
+      }
+      $r->save();
+    }
+
+    return response()->json([
+      'value' => '200',
+      'terkunci' => $terkunci,
+      'pesan' => $terkunci
+        ? 'Nama pada tagging sudah terkunci — nama di sertifikat berhasil diperbarui.'
+        : 'Nama penerima berhasil diperbarui.',
+    ]);
+  }
+
   // Data sertifikat adopsi publik by certnum (halaman /sertifikat web).
   // Satu certnum menutup satu invoice (bisa >1 pohon) → jml_pohon dihitung
   // dari baris data_adopsi ber-certnum sama (lebih akurat daripada
@@ -5199,10 +5294,17 @@ public function confirmasipembayaran(Request $request){
     $da->jml_pohon = Dataadopsi::where('certnum', $certnum)->count();
     $m = Member::find($da->pengasuh);
     $da->nama_pengasuh = $m ? trim((string) $m->name) : '';
-    $nama = trim((string) $da->nama);
+    $nama = $this->namaSertifikat($da);
     if ($nama === '' || $nama === '-') {
       $da->nama = $da->nama_pengasuh !== '' ? $da->nama_pengasuh : $nama;
+    } else {
+      $da->nama = $nama;
     }
+    // Status kunci nama tagging untuk form revisi di halaman sertifikat:
+    // begitu ada pohon di sertifikat ini yang masuk antrian tagging, nama
+    // pada papan tagging tidak boleh berubah lagi.
+    $da->nama_terkunci = Dataadopsi::where('certnum', $certnum)
+      ->where('proses', '>=', 2)->exists();
     // Daftar pohon per invoice untuk blok bawah sertifikat (jenis + Ø +
     // tonase per batang). idpohon tidak unik → groupBy kolom terpilih agar
     // aman di ONLY_FULL_GROUP_BY.

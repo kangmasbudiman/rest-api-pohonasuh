@@ -150,6 +150,7 @@ Route::post('fototagingorder', [ApiController::class, 'fototagingorder']);
 Route::post('pohonbykode', [ApiController::class, 'pohonbykode']);
 Route::post('riwayatpohon', [ApiController::class, 'riwayatpohon']);
 Route::post('updatememosertifikat', [ApiController::class, 'updatememosertifikat']);
+Route::post('updatenamahadiah', [ApiController::class, 'updatenamahadiah']);
 Route::get('sertifikatpublik/{certnum}', [ApiController::class, 'sertifikatpublik'])
   ->where('certnum', '.*'); // certnum mengandung '/' (mis. 001/LPHD-RA/2026)
 Route::post('kirimemailsertifikat', [ApiController::class, 'kirimemailsertifikat']);
