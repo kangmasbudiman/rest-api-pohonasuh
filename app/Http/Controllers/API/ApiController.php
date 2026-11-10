@@ -5287,6 +5287,10 @@ public function confirmasipembayaran(Request $request){
       ->where('data_adopsi.certnum', $certnum)
       ->first(['data_adopsi.*', 'desa.provinsi', 'desa.kabupaten', 'desa.kecamatan',
         'desa.label AS desa_label',
+        // Skema/institusi dari master data lokasi ("Customary Forest/HA",
+        // "Village Forest", dst.) — mengikuti input admin, dipakai di baris
+        // lokasi sertifikat menggantikan teks tetap "Village Forest".
+        'desa.skema AS desa_skema',
         'data_pohon.localname', 'data_pohon.species', 'data_pohon.foto_pohon']);
     if (!$da || trim((string)$da->certnum) === '') {
       return null;
