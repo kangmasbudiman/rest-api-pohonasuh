@@ -2659,6 +2659,20 @@ public function confirmasipembayaran(Request $request){
                  $ukuran_file = $file->getSize();
                  $destinationPath = 'public/upload/slider';
                  $file->move($destinationPath,$name_file);
+                  // Tolak order bila ada pohon yang tidak lagi bisa diadopsi
+                  // (dibekukan / dipesan admin / sudah diambil orang lain).
+                  $basketCek = Tobasket::where('id_member', $request->input('id_member'))->get();
+                  foreach ($basketCek as $bc) {
+                    $pohonCek = Pohon::where('idpohon', $bc->id_pohon)->first();
+                    if (!$this->pohonBisaDiadopsi($pohonCek)) {
+                      $namaCek = $pohonCek ? $pohonCek->localname : $bc->id_pohon;
+                      return response()->json([
+                        'value' => '409',
+                        'pesan' => "Pohon {$namaCek} ({$bc->id_pohon}) sudah tidak tersedia untuk diadopsi.",
+                      ], 409);
+                    }
+                  }
+
                   //membuat nomer invoce otomatis
                     $tanggalpesan=Date('Y-m-d');
                     $nomerinvoice=$this->buatInvoiceAcak();
@@ -2777,6 +2791,20 @@ public function confirmasipembayaran(Request $request){
    
          
     }else{ //membuat nomer invoce otomatis
+                    // Tolak seluruh order bila ada pohon yang tidak lagi bisa
+                    // diadopsi (dibekukan / dipesan admin / sudah diambil).
+                    $basketCek = Tobasket::where('id_member', $request->input('id_member'))->get();
+                    foreach ($basketCek as $bc) {
+                      $pohonCek = Pohon::where('idpohon', $bc->id_pohon)->first();
+                      if (!$this->pohonBisaDiadopsi($pohonCek)) {
+                        $namaCek = $pohonCek ? $pohonCek->localname : $bc->id_pohon;
+                        return response()->json([
+                          'value' => '409',
+                          'pesan' => "Pohon {$namaCek} ({$bc->id_pohon}) sudah tidak tersedia untuk diadopsi.",
+                        ], 409);
+                      }
+                    }
+
                     $tanggalpesan=Date('Y-m-d');
                     $nomerinvoice=$this->buatInvoiceAcak();
                     
@@ -3966,7 +3994,16 @@ public function confirmasipembayaran(Request $request){
 
   public function tobasket(Request $request){
     
-   
+    // Tolak pohon yang dibekukan, dipesan admin, atau sudah diambil orang lain
+    // — berlaku untuk web & aplikasi mobile (satu pintu validasi di API).
+    $pohonBasket = Pohon::where('idpohon', $request->input('id_pohon'))->first();
+    if (!$this->pohonBisaDiadopsi($pohonBasket)) {
+      return response()->json([
+        'code' => "409",
+        'message' => "Pohon sudah tidak tersedia untuk diadopsi",
+      ], 409);
+    }
+
     $cektroli=Tobasket::where([['id_pohon',$request->input('id_pohon')],['id_member',$request->input('id_member')]])->first();
     
     if($cektroli){
@@ -4058,6 +4095,9 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+        $b['reserved_name'] = $k->reserved_name;
+        $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
         $b['tgl_adopt'] = $k->tgl_adopt;
@@ -4137,6 +4177,9 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+        $b['reserved_name'] = $k->reserved_name;
+        $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
         $b['tgl_adopt'] = $k->tgl_adopt;
@@ -4458,6 +4501,9 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+        $b['reserved_name'] = $k->reserved_name;
+        $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
         $b['tgl_adopt'] = $k->tgl_adopt;
@@ -4591,6 +4637,9 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+        $b['reserved_name'] = $k->reserved_name;
+        $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
         $b['tgl_adopt'] = $k->tgl_adopt;
@@ -4689,6 +4738,9 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+        $b['reserved_name'] = $k->reserved_name;
+        $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
         $b['tgl_adopt'] = $k->tgl_adopt;
@@ -4783,6 +4835,9 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+        $b['reserved_name'] = $k->reserved_name;
+        $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
         $b['tgl_adopt'] = $k->tgl_adopt;
@@ -4865,6 +4920,9 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+        $b['reserved_name'] = $k->reserved_name;
+        $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
         $b['tgl_adopt'] = $k->tgl_adopt;
@@ -4955,6 +5013,9 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+        $b['reserved_name'] = $k->reserved_name;
+        $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
         $b['tgl_adopt'] = $k->tgl_adopt;
@@ -5040,6 +5101,9 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+        $b['reserved_name'] = $k->reserved_name;
+        $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
         $b['tgl_adopt'] = $k->tgl_adopt;
@@ -6060,6 +6124,125 @@ public function confirmasipembayaran(Request $request){
     }
     $p->delete();
     return response()->json(['value' => '200', 'pesan' => 'Success']);
+  }
+
+  // ===== Pembekuan pohon & reservasi oleh admin =====
+
+  // Pohon boleh diadopsi pengunjung bila: belum diadopsi/dipesan siapa pun,
+  // tidak dibekukan (data_pohon.beku), dan tidak sedang direservasi admin.
+  private function pohonBisaDiadopsi($p){
+    if (!$p) return false;
+    return $p->adopted === 'available'
+      && strtolower(trim((string) $p->beku)) !== 'yes'
+      && (int) ($p->reserved_admin ?? 0) === 0;
+  }
+
+  private function ubahBekuPohon(Request $request){
+    $idpohon = trim((string) $request->input('idpohon'));
+    $beku = strtolower(trim((string) $request->input('beku', 'yes'))) === 'yes' ? 'yes' : 'no';
+    $p = Pohon::where('idpohon', $idpohon)->first();
+    if (!$p) {
+      return response()->json(['value' => '404', 'pesan' => 'Pohon tidak ditemukan'], 404);
+    }
+    // Membekukan hanya relevan utk pohon yang statusnya masih tersedia; pohon
+    // teradopsi/dipesan tidak diubah agar statusnya tidak tercampur. Pohon yang
+    // sudah beku tetap boleh dibekukan ulang (idempoten).
+    if ($beku === 'yes' && $p->adopted !== 'available') {
+      return response()->json([
+        'value' => '409',
+        'pesan' => 'Pohon sudah diadopsi/dipesan — tidak bisa dibekukan',
+      ], 409);
+    }
+    $p->beku = $beku;
+    $p->update();
+    return response()->json([
+      'value' => '200',
+      'beku' => $beku,
+      'pesan' => $beku === 'yes'
+        ? 'Pohon dibekukan — tetap tampil tapi tidak bisa diadopsi.'
+        : 'Pohon diaktifkan kembali.',
+    ]);
+  }
+
+  // Bekukan / aktifkan satu pohon (menu Data Pohon).
+  public function bekukanpohon(Request $request){
+    return $this->ubahBekuPohon($request);
+  }
+
+  // Bekukan / aktifkan SEMUA pohon tersedia di satu lokasi desa sekaligus
+  // (menu Data Lokasi). Saat membekukan hanya pohon 'available' yang disentuh;
+  // saat mengaktifkan, semua pohon di desa itu dibersihkan.
+  public function bekukandesa(Request $request){
+    $desa = trim((string) $request->input('desa'));
+    if ($desa === '') {
+      return response()->json(['value' => '400', 'pesan' => 'Desa wajib diisi'], 400);
+    }
+    $beku = strtolower(trim((string) $request->input('beku', 'yes'))) === 'yes' ? 'yes' : 'no';
+    $q = Pohon::where('desa', $desa);
+    if ($beku === 'yes') {
+      $q->where('adopted', 'available');
+    }
+    $jumlah = (int) $q->count();
+    $q->update(['beku' => $beku]);
+    return response()->json([
+      'value' => '200',
+      'beku' => $beku,
+      'jumlah' => $jumlah,
+      'pesan' => $beku === 'yes'
+        ? "{$jumlah} pohon di lokasi ini dibekukan — tetap tampil tapi tidak bisa diadopsi."
+        : "{$jumlah} pohon di lokasi ini diaktifkan kembali.",
+    ]);
+  }
+
+  // Pesan pohon untuk pemesan tertentu (admin). Status menjadi 'reserved'
+  // dengan penanda reserved_admin sehingga pengunjung tidak bisa mengadopsi.
+  public function pesanpohonadmin(Request $request){
+    $idpohon = trim((string) $request->input('idpohon'));
+    $nama = mb_substr(trim((string) $request->input('nama')), 0, 255);
+    if ($idpohon === '' || $nama === '') {
+      return response()->json(['value' => '400', 'pesan' => 'Kode pohon dan nama pemesan wajib diisi'], 400);
+    }
+    $p = Pohon::where('idpohon', $idpohon)->first();
+    if (!$p) {
+      return response()->json(['value' => '404', 'pesan' => 'Pohon tidak ditemukan'], 404);
+    }
+    if (!$this->pohonBisaDiadopsi($p)) {
+      $pesan = $p->adopted === 'reserved'
+        ? 'Pohon sudah dipesan'
+        : ($p->adopted === 'adopted'
+          ? 'Pohon sudah diadopsi'
+          : 'Pohon sedang dibekukan');
+      return response()->json(['value' => '409', 'pesan' => $pesan], 409);
+    }
+    $p->adopted = 'reserved';
+    $p->reserved_admin = 1;
+    $p->reserved_name = $nama;
+    $p->reserved_at = now();
+    $p->tgl_pesan = date('Y-m-d');
+    $p->update();
+    return response()->json([
+      'value' => '200',
+      'pesan' => "Pohon {$p->idpohon} dipesan untuk {$nama} — tidak bisa diadopsi pengunjung.",
+    ]);
+  }
+
+  // Batalkan reservasi admin → pohon kembali tersedia.
+  public function batalpesanpohonadmin(Request $request){
+    $idpohon = trim((string) $request->input('idpohon'));
+    $p = Pohon::where('idpohon', $idpohon)->first();
+    if (!$p) {
+      return response()->json(['value' => '404', 'pesan' => 'Pohon tidak ditemukan'], 404);
+    }
+    if ((int) ($p->reserved_admin ?? 0) !== 1) {
+      return response()->json(['value' => '409', 'pesan' => 'Pohon ini bukan reservasi admin'], 409);
+    }
+    $p->adopted = 'available';
+    $p->reserved_admin = 0;
+    $p->reserved_name = null;
+    $p->reserved_at = null;
+    $p->tgl_pesan = null;
+    $p->update();
+    return response()->json(['value' => '200', 'pesan' => 'Reservasi dibatalkan — pohon kembali tersedia.']);
   }
 
   public function register (Request $request){

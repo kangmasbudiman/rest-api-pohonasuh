@@ -15,7 +15,8 @@ class Pohon extends Model
     'species','family','localname','status','jenis','diameter','tinggi',
     'keliling','dpl','slope','manfaat','soil','surveyor','tgl_survey',
     'fotografer','dilihat','hit','tampil','beku','score','tgl_pesan','tgl_adopt',
-    'price','cur','adopted','dur','methode','pengasuh','gfrom','nama','catatan','invoice',
+    'price','cur','adopted','reserved_admin','reserved_name','reserved_at',
+    'dur','methode','pengasuh','gfrom','nama','catatan','invoice',
     'admin','proses','keterangan','qrcode','harga'];
     protected $primaryKey='id';
 
