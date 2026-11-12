@@ -20,6 +20,7 @@ use App\Models\Blog;
 use App\Models\Slider;
 use App\Models\Desa;
 use App\Models\Pohon;
+use App\Models\PengajuanBeku;
 use App\Models\Rekening;
 use App\Models\Role;
 use App\Models\Tobasket;
@@ -4293,6 +4294,7 @@ public function confirmasipembayaran(Request $request){
         $b['kecamatan']=$k->kecamatan;
         $b['kabupaten']=$k->kabupaten;
         $b['admin_desa']=$admins[$k->admin_desa] ?? "-";
+        $b['admin_desa_id']=$k->admin_desa ? (int) $k->admin_desa : null;
         $b['label']=$k->label;
         $b['kode_cert']=$k->kode_cert;
         $b['kode_pohon']=$k->kode_pohon;
@@ -6335,6 +6337,238 @@ public function confirmasipembayaran(Request $request){
         ? "{$jumlah} pohon di lokasi ini dibekukan — tetap tampil tapi tidak bisa diadopsi."
         : "{$jumlah} pohon di lokasi ini diaktifkan kembali.",
     ]);
+  }
+
+  // ===== Pengajuan pembekuan oleh pengelola desa =====
+
+  // Desa yang dikelola member (kolom desa.admin_desa = id member).
+  private function desaPengelola($idmember){
+    return Desa::where('admin_desa', $idmember)->pluck('nama');
+  }
+
+  private function adminUtamaIds(){
+    return Member::where('admin', 1)->pluck('id');
+  }
+
+  // Jalankan pembekuan sesuai pengajuan: tipe desa (semua pohon tersedia)
+  // atau pohon tertentu (CSV kode). Mengembalikan [jumlah, dilewati].
+  private function jalankanPembekuan($tipe, $desa, $csv, $alasan, $sampai){
+    $jumlah = 0;
+    $dilewati = 0;
+    if ($tipe === 'desa') {
+      $jumlah = (int) Pohon::where('desa', $desa)->where('adopted', 'available')
+        ->update(['beku' => 'yes', 'beku_alasan' => $alasan, 'beku_sampai' => $sampai]);
+      return [$jumlah, $dilewati];
+    }
+    $codes = array_values(array_unique(array_filter(array_map('trim', explode(',', (string) $csv)))));
+    foreach ($codes as $code) {
+      $p = Pohon::where('idpohon', $code)->first();
+      if (!$p || $p->adopted !== 'available' || $p->desa !== $desa) { $dilewati++; continue; }
+      $p->beku = 'yes';
+      $p->beku_alasan = $alasan;
+      $p->beku_sampai = $sampai;
+      $p->update();
+      $jumlah++;
+    }
+    return [$jumlah, $dilewati];
+  }
+
+  // Pengelola desa mengajukan pembekuan — menunggu persetujuan admin utama.
+  public function ajukanbeku(Request $request){
+    $idmember = (int) $request->input('idmember');
+    $tipe = trim((string) $request->input('tipe', 'pohon')) === 'desa' ? 'desa' : 'pohon';
+    $desa = trim((string) $request->input('desa'));
+    $alasan = mb_substr(trim((string) $request->input('alasan')), 0, 255);
+    $hari = max(0, (int) $request->input('hari', 0));
+
+    $m = Member::find($idmember);
+    if (!$m || (int) $m->admin !== 2) {
+      return response()->json(['value' => '403', 'pesan' => 'Hanya pengelola desa yang bisa mengajukan'], 403);
+    }
+    $desasSaya = $this->desaPengelola($idmember);
+    if ($desasSaya->isEmpty()) {
+      return response()->json(['value' => '403', 'pesan' => 'Anda belum ditugaskan mengelola desa'], 403);
+    }
+    if ($desa === '' || !$desasSaya->contains($desa)) {
+      return response()->json(['value' => '403', 'pesan' => 'Desa bukan dalam pengelolaan Anda'], 403);
+    }
+    if ($alasan === '') {
+      return response()->json(['value' => '400', 'pesan' => 'Alasan pembekuan wajib diisi'], 400);
+    }
+    if ($hari > 3650) {
+      return response()->json(['value' => '400', 'pesan' => 'Durasi maksimal 3650 hari'], 400);
+    }
+
+    $csv = null;
+    if ($tipe === 'pohon') {
+      $codes = array_values(array_unique(array_filter(array_map('trim', explode(',', (string) $request->input('idpohon'))))));
+      if (count($codes) === 0) {
+        return response()->json(['value' => '400', 'pesan' => 'Pilih minimal satu pohon'], 400);
+      }
+      foreach ($codes as $code) {
+        $p = Pohon::where('idpohon', $code)->first();
+        if (!$p || $p->desa !== $desa) {
+          return response()->json(['value' => '404', 'pesan' => "Pohon {$code} tidak ada di desa ini"], 404);
+        }
+        if ($p->adopted !== 'available') {
+          return response()->json(['value' => '409', 'pesan' => "Pohon {$code} sudah diadopsi/dipesan"], 409);
+        }
+      }
+      $csv = implode(',', $codes);
+    }
+
+    // Tolak pengajuan ganda untuk desa yang sama yang masih menunggu.
+    $duplikat = PengajuanBeku::where('desa', $desa)
+      ->where('status', 'menunggu')
+      ->when($tipe === 'pohon', function ($q) use ($csv) {
+        $q->where(function ($qq) use ($csv) {
+          $qq->where('idpohon', $csv)->orWhere('tipe', 'desa');
+        });
+      })
+      ->exists();
+    if ($duplikat) {
+      return response()->json(['value' => '409', 'pesan' => 'Ada pengajuan serupa yang masih menunggu persetujuan'], 409);
+    }
+
+    $a = new PengajuanBeku();
+    $a->desa = $desa;
+    $a->idpohon = $tipe === 'pohon' ? $csv : null;
+    $a->tipe = $tipe;
+    $a->alasan = $alasan;
+    $a->hari = $hari;
+    $a->diajukan = $idmember;
+    $a->status = 'menunggu';
+    $a->save();
+
+    $pesan = "Pengajuan pembekuan pohon desa {$desa} oleh {$m->name} menunggu persetujuan Anda.";
+    foreach ($this->adminUtamaIds() as $aid) {
+      $n = new Pesan();
+      $n->idmember = $aid;
+      $n->pesan = $pesan;
+      $n->pesan_en = $pesan;
+      $n->link = '/admin/pohon/beku';
+      $n->status = 'noread';
+      $n->save();
+      $this->kirimPush($aid, 'Pengajuan Pembekuan', $pesan);
+    }
+
+    return response()->json([
+      'value' => '200',
+      'id' => $a->id,
+      'pesan' => "Pengajuan pembekuan desa {$desa} terkirim — menunggu persetujuan admin utama.",
+    ]);
+  }
+
+  // Daftar pengajuan pembekuan: admin utama = semua, pengelola = miliknya.
+  public function getpengajuanbeku(Request $request){
+    $idmember = (int) $request->input('idmember');
+    $m = Member::find($idmember);
+    if (!$m) {
+      return response()->json([], 404);
+    }
+    $q = PengajuanBeku::leftJoin('member as pj', 'pj.id', '=', 'pengajuan_beku.diajukan')
+      ->leftJoin('member as pr', 'pr.id', '=', 'pengajuan_beku.diproses')
+      ->orderByDesc('pengajuan_beku.id')
+      ->limit(200);
+    if ((int) $m->admin !== 1) {
+      $q->where('pengajuan_beku.diajukan', $idmember);
+    }
+    $out = [];
+    foreach ($q->get([
+      'pengajuan_beku.*', 'pj.name as nama_pengaju', 'pr.name as nama_proses',
+    ]) as $r) {
+      $out[] = [
+        'id' => $r->id,
+        'desa' => $r->desa,
+        'idpohon' => $r->idpohon,
+        'tipe' => $r->tipe,
+        'alasan' => $r->alasan,
+        'hari' => (int) $r->hari,
+        'status' => $r->status,
+        'catatan' => $r->catatan,
+        'nama_pengaju' => $r->nama_pengaju,
+        'nama_proses' => $r->nama_proses,
+        'created_at' => $r->created_at ? $r->created_at->format('Y-m-d H:i') : null,
+        'processed_at' => $r->processed_at ? $r->processed_at->format('Y-m-d H:i') : null,
+      ];
+    }
+    return response()->json($out);
+  }
+
+  // Admin utama menyetujui pengajuan → pembekuan langsung dijalankan.
+  public function setujuibeku(Request $request){
+    $idadmin = (int) $request->input('idadmin');
+    $admin = Member::find($idadmin);
+    if (!$admin || (int) $admin->admin !== 1) {
+      return response()->json(['value' => '403', 'pesan' => 'Hanya admin utama yang bisa menyetujui'], 403);
+    }
+    $a = PengajuanBeku::find($request->input('id'));
+    if (!$a) {
+      return response()->json(['value' => '404', 'pesan' => 'Pengajuan tidak ditemukan'], 404);
+    }
+    if ($a->status !== 'menunggu') {
+      return response()->json(['value' => '409', 'pesan' => 'Pengajuan sudah diproses'], 409);
+    }
+    $sampai = $a->hari > 0 ? date('Y-m-d', strtotime("+{$a->hari} days")) : null;
+    [$jumlah, $dilewati] = $this->jalankanPembekuan($a->tipe, $a->desa, $a->idpohon, $a->alasan, $sampai);
+
+    $a->status = 'disetujui';
+    $a->diproses = $idadmin;
+    $a->processed_at = now();
+    $a->save();
+
+    $pesan = "Pengajuan pembekuan pohon desa {$a->desa} Anda disetujui — {$jumlah} pohon dibekukan."
+      . ($dilewati > 0 ? " {$dilewati} pohon dilewati karena tidak tersedia." : "");
+    $n = new Pesan();
+    $n->idmember = $a->diajukan;
+    $n->pesan = $pesan;
+    $n->pesan_en = $pesan;
+    $n->link = '/admin/pohon/beku';
+    $n->status = 'noread';
+    $n->save();
+    $this->kirimPush($a->diajukan, 'Pengajuan Disetujui', $pesan);
+
+    return response()->json([
+      'value' => '200',
+      'jumlah' => $jumlah,
+      'dilewati' => $dilewati,
+      'pesan' => $pesan,
+    ]);
+  }
+
+  // Admin utama menolak pengajuan (catatan opsional, dikirim ke pengaju).
+  public function tolakbeku(Request $request){
+    $idadmin = (int) $request->input('idadmin');
+    $admin = Member::find($idadmin);
+    if (!$admin || (int) $admin->admin !== 1) {
+      return response()->json(['value' => '403', 'pesan' => 'Hanya admin utama yang bisa memproses'], 403);
+    }
+    $a = PengajuanBeku::find($request->input('id'));
+    if (!$a) {
+      return response()->json(['value' => '404', 'pesan' => 'Pengajuan tidak ditemukan'], 404);
+    }
+    if ($a->status !== 'menunggu') {
+      return response()->json(['value' => '409', 'pesan' => 'Pengajuan sudah diproses'], 409);
+    }
+    $catatan = mb_substr(trim((string) $request->input('catatan')), 0, 255);
+    $a->status = 'ditolak';
+    $a->catatan = $catatan !== '' ? $catatan : null;
+    $a->diproses = $idadmin;
+    $a->processed_at = now();
+    $a->save();
+
+    $pesan = "Pengajuan pembekuan pohon desa {$a->desa} Anda ditolak."
+      . ($catatan !== '' ? " Catatan: {$catatan}" : "");
+    $n = new Pesan();
+    $n->idmember = $a->diajukan;
+    $n->pesan = $pesan;
+    $n->pesan_en = $pesan;
+    $n->link = '/admin/pohon/beku';
+    $n->status = 'noread';
+    $n->save();
+    $this->kirimPush($a->diajukan, 'Pengajuan Ditolak', $pesan);
+
+    return response()->json(['value' => '200', 'pesan' => 'Pengajuan ditolak.']);
   }
 
   // Pesan pohon untuk pemesan tertentu (admin). Status menjadi 'reserved'
