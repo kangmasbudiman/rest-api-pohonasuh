@@ -672,6 +672,7 @@ public function posisipetugas(){
 
 // Seluruh pohon satu desa (semua status) — data minimum utk peta offline tagging.
 public function pohonmapdesa(Request $request){
+    $this->bukaBekuKedaluwarsa();
     $desa=$request->input('desa');
 
     $data=Pohon::where('desa', $desa)
@@ -2649,6 +2650,7 @@ public function getconfirmasi(Request $request){
 
 
 public function confirmasipembayaran(Request $request){
+    $this->bukaBekuKedaluwarsa();
 
     
     //menambahkan kedatabase konfirmasi pembayaran;
@@ -3993,6 +3995,7 @@ public function confirmasipembayaran(Request $request){
 
 
   public function tobasket(Request $request){
+    $this->bukaBekuKedaluwarsa();
     
     // Tolak pohon yang dibekukan, dipesan admin, atau sudah diambil orang lain
     // — berlaku untuk web & aplikasi mobile (satu pintu validasi di API).
@@ -4095,6 +4098,8 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['beku_alasan'] = $k->beku_alasan;
+        $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
         $b['reserved_at'] = $k->reserved_at;
@@ -4177,6 +4182,8 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['beku_alasan'] = $k->beku_alasan;
+        $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
         $b['reserved_at'] = $k->reserved_at;
@@ -4457,6 +4464,7 @@ public function confirmasipembayaran(Request $request){
 
 
   public function filtertrees(Request $request){
+    $this->bukaBekuKedaluwarsa();
     $this->kedaluwarsaPembayaran();
     $status=$request->adopted;
     $data=Pohon::where('adopted',$status)->get();
@@ -4501,6 +4509,8 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['beku_alasan'] = $k->beku_alasan;
+        $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
         $b['reserved_at'] = $k->reserved_at;
@@ -4608,6 +4618,7 @@ public function confirmasipembayaran(Request $request){
 
 
   public function pohonhighlight(){
+    $this->bukaBekuKedaluwarsa();
     $this->kedaluwarsaPembayaran();
     $data=Pohon::where([['highlight',1],['adopted','available']])->get();
     if(count($data)>0){
@@ -4637,6 +4648,8 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['beku_alasan'] = $k->beku_alasan;
+        $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
         $b['reserved_at'] = $k->reserved_at;
@@ -4738,6 +4751,8 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['beku_alasan'] = $k->beku_alasan;
+        $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
         $b['reserved_at'] = $k->reserved_at;
@@ -4835,6 +4850,8 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['beku_alasan'] = $k->beku_alasan;
+        $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
         $b['reserved_at'] = $k->reserved_at;
@@ -4889,6 +4906,7 @@ public function confirmasipembayaran(Request $request){
 
 
   public function pohonbydesa(Request $request){
+    $this->bukaBekuKedaluwarsa();
       $desa=$request->desa;
       
     $data=Pohon::where([['adopted','available'],['desa',$desa]])->get();
@@ -4920,6 +4938,8 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['beku_alasan'] = $k->beku_alasan;
+        $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
         $b['reserved_at'] = $k->reserved_at;
@@ -5013,6 +5033,8 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['beku_alasan'] = $k->beku_alasan;
+        $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
         $b['reserved_at'] = $k->reserved_at;
@@ -5071,6 +5093,7 @@ public function confirmasipembayaran(Request $request){
 
 
   public function pohonmapall(){
+    $this->bukaBekuKedaluwarsa();
      
     //$data=Pohon::where([['highlight',2],['adopted','available']])->get();
     $data=Pohon::all();
@@ -5101,6 +5124,8 @@ public function confirmasipembayaran(Request $request){
         $b['dilihat'] = $k->dilihat;
         $b['hit'] = $k->hit;
         $b['beku'] = $k->beku;
+        $b['beku_alasan'] = $k->beku_alasan;
+        $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
         $b['reserved_at'] = $k->reserved_at;
@@ -5160,6 +5185,7 @@ public function confirmasipembayaran(Request $request){
   // ===================== Integrasi website =====================
   // Satu pohon lengkap berdasarkan kode (halaman detail & admin web).
   public function pohonbykode(Request $request){
+    $this->bukaBekuKedaluwarsa();
     $p = Pohon::where('idpohon', $request->input('idpohon'))->first();
     if (!$p) {
       return response()->json(null, 404);
@@ -6128,13 +6154,63 @@ public function confirmasipembayaran(Request $request){
 
   // ===== Pembekuan pohon & reservasi oleh admin =====
 
+  // Pembekuan dianggap aktif bila beku='yes' dan batas waktunya belum lewat.
+  // beku_sampai NULL = dibekukan sampai dibuka manual oleh admin.
+  private function pohonBekuAktif($p){
+    if (!$p) return false;
+    if (strtolower(trim((string) $p->beku)) !== 'yes') return false;
+    $sampai = $p->beku_sampai ?? null;
+    if ($sampai) {
+      $t = strtotime((string) $sampai);
+      if ($t !== false && date('Y-m-d') > date('Y-m-d', $t)) return false;
+    }
+    return true;
+  }
+
+  // Buka otomatis pembekuan sementara yang sudah lewat (lazy, tanpa cron).
+  // Dipanggil dari endpoint baca pohon agar badge & ketersediaan konsisten.
+  private function bukaBekuKedaluwarsa(){
+    Pohon::where('beku', 'yes')
+      ->whereNotNull('beku_sampai')
+      ->where('beku_sampai', '<', date('Y-m-d'))
+      ->update(['beku' => 'no', 'beku_alasan' => null, 'beku_sampai' => null]);
+  }
+
   // Pohon boleh diadopsi pengunjung bila: belum diadopsi/dipesan siapa pun,
-  // tidak dibekukan (data_pohon.beku), dan tidak sedang direservasi admin.
+  // tidak sedang dibekukan aktif, dan tidak sedang direservasi admin.
   private function pohonBisaDiadopsi($p){
     if (!$p) return false;
     return $p->adopted === 'available'
-      && strtolower(trim((string) $p->beku)) !== 'yes'
+      && !$this->pohonBekuAktif($p)
       && (int) ($p->reserved_admin ?? 0) === 0;
+  }
+
+  // Validasi input pembekuan: alasan wajib, tanggal berakhir opsional
+  // (format Y-m-d, tidak boleh di masa lalu).
+  private function validasiBeku(Request $request){
+    $alasan = mb_substr(trim((string) $request->input('alasan')), 0, 255);
+    $sampai = trim((string) $request->input('sampai'));
+    if ($alasan === '') {
+      return [null, null, response()->json([
+        'value' => '400',
+        'pesan' => 'Alasan pembekuan wajib diisi',
+      ], 400)];
+    }
+    if ($sampai !== '') {
+      if (!preg_match('/^\d{4}-\d{2}-\d{2}$/', $sampai)) {
+        return [null, null, response()->json([
+          'value' => '400',
+          'pesan' => 'Tanggal berakhir tidak valid',
+        ], 400)];
+      }
+      if ($sampai < date('Y-m-d')) {
+        return [null, null, response()->json([
+          'value' => '400',
+          'pesan' => 'Tanggal berakhir tidak boleh di masa lalu',
+        ], 400)];
+      }
+    }
+    return [$alasan, $sampai !== '' ? $sampai : null, null];
   }
 
   private function ubahBekuPohon(Request $request){
@@ -6153,7 +6229,15 @@ public function confirmasipembayaran(Request $request){
         'pesan' => 'Pohon sudah diadopsi/dipesan — tidak bisa dibekukan',
       ], 409);
     }
+    $alasan = null;
+    $sampai = null;
+    if ($beku === 'yes') {
+      [$alasan, $sampai, $err] = $this->validasiBeku($request);
+      if ($err) return $err;
+    }
     $p->beku = $beku;
+    $p->beku_alasan = $alasan;
+    $p->beku_sampai = $sampai;
     $p->update();
     return response()->json([
       'value' => '200',
@@ -6169,6 +6253,53 @@ public function confirmasipembayaran(Request $request){
     return $this->ubahBekuPohon($request);
   }
 
+  // Bekukan beberapa pohon sekaligus (pilih-banyak / menu Pembekuan Pohon).
+  // Saat beku=no dipakai juga untuk membuka pembekuan beberapa pohon.
+  public function bekukanpohonbanyak(Request $request){
+    $beku = strtolower(trim((string) $request->input('beku', 'yes'))) === 'yes' ? 'yes' : 'no';
+    $codes = $request->input('idpohon');
+    if (is_string($codes)) {
+      $codes = array_map('trim', explode(',', $codes));
+    }
+    if (!is_array($codes)) $codes = [];
+    $codes = array_values(array_unique(array_filter($codes, function ($c) {
+      return is_string($c) && trim($c) !== '';
+    })));
+    if (count($codes) === 0) {
+      return response()->json(['value' => '400', 'pesan' => 'Pilih minimal satu pohon'], 400);
+    }
+
+    $alasan = null;
+    $sampai = null;
+    if ($beku === 'yes') {
+      [$alasan, $sampai, $err] = $this->validasiBeku($request);
+      if ($err) return $err;
+    }
+
+    $jumlah = 0;
+    $dilewati = 0;
+    foreach ($codes as $code) {
+      $p = Pohon::where('idpohon', $code)->first();
+      if (!$p) { $dilewati++; continue; }
+      if ($beku === 'yes' && $p->adopted !== 'available') { $dilewati++; continue; }
+      $p->beku = $beku;
+      $p->beku_alasan = $alasan;
+      $p->beku_sampai = $sampai;
+      $p->update();
+      $jumlah++;
+    }
+
+    return response()->json([
+      'value' => '200',
+      'beku' => $beku,
+      'jumlah' => $jumlah,
+      'dilewati' => $dilewati,
+      'pesan' => $beku === 'yes'
+        ? "{$jumlah} pohon dibekukan — tetap tampil tapi tidak bisa diadopsi."
+        : "{$jumlah} pohon diaktifkan kembali.",
+    ]);
+  }
+
   // Bekukan / aktifkan SEMUA pohon tersedia di satu lokasi desa sekaligus
   // (menu Data Lokasi). Saat membekukan hanya pohon 'available' yang disentuh;
   // saat mengaktifkan, semua pohon di desa itu dibersihkan.
@@ -6178,12 +6309,24 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value' => '400', 'pesan' => 'Desa wajib diisi'], 400);
     }
     $beku = strtolower(trim((string) $request->input('beku', 'yes'))) === 'yes' ? 'yes' : 'no';
+
+    $alasan = null;
+    $sampai = null;
+    if ($beku === 'yes') {
+      [$alasan, $sampai, $err] = $this->validasiBeku($request);
+      if ($err) return $err;
+    }
+
     $q = Pohon::where('desa', $desa);
     if ($beku === 'yes') {
       $q->where('adopted', 'available');
     }
     $jumlah = (int) $q->count();
-    $q->update(['beku' => $beku]);
+    $q->update([
+      'beku' => $beku,
+      'beku_alasan' => $alasan,
+      'beku_sampai' => $sampai,
+    ]);
     return response()->json([
       'value' => '200',
       'beku' => $beku,

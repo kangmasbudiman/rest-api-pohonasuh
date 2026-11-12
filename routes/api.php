@@ -163,6 +163,7 @@ Route::post('hapusblog', [ApiController::class, 'hapusblog']);
 Route::post('editpohon', [ApiController::class, 'editpohon']);
 Route::post('hapuspohon', [ApiController::class, 'hapuspohon']);
 Route::post('bekukanpohon', [ApiController::class, 'bekukanpohon']);
+Route::post('bekukanpohonbanyak', [ApiController::class, 'bekukanpohonbanyak']);
 Route::post('bekukandesa', [ApiController::class, 'bekukandesa']);
 Route::post('pesanpohonadmin', [ApiController::class, 'pesanpohonadmin']);
 Route::post('batalpesanpohonadmin', [ApiController::class, 'batalpesanpohonadmin']);
