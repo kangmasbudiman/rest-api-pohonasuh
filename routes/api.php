@@ -76,6 +76,7 @@ Route::post('globalsearch', [ApiController::class, 'globalsearch']);
 
 Route::post('pohonmap', [ApiController::class, 'pohonmap']);
 Route::get('pohonmapall', [ApiController::class, 'pohonmapall']);
+Route::get('pohonbeku', [ApiController::class, 'pohonbeku']);
 Route::get('pohonhighlight', [ApiController::class, 'pohonhighlight']);
 Route::get('slider', [ApiController::class, 'slider']);
 Route::get('blogfirst', [ApiController::class, 'blogfirst']);

@@ -5094,6 +5094,60 @@ public function confirmasipembayaran(Request $request){
 }
 
 
+  // Ringkasan pohon yang sedang dibekukan (beku="yes") untuk halaman admin
+  // "Pembekuan Pohon". Sengaja tanpa query per baris (bedanya dengan
+  // pohonmapall) supaya halaman tidak menggantung pada ribuan pohon.
+  public function pohonbeku(Request $request){
+    $this->bukaBekuKedaluwarsa();
+
+    $data = Pohon::where('beku', 'yes')->get();
+
+    $expMap = [];
+    foreach (Dataadopsi::whereIn('idpohon', $data->pluck('idpohon')->unique())->orderBy('id')->get() as $row) {
+      if (!array_key_exists($row->idpohon, $expMap)) {
+        $expMap[$row->idpohon] = $row->tgl_exp;
+      }
+    }
+
+    $items = array();
+    $jumlahDesa = array();
+    foreach ($data as $k) {
+      $b['id'] = $k->id;
+      $b['latitude'] = $k->latitude;
+      $b['longitude'] = $k->longitude;
+      $b['desa'] = $k->desa;
+      $b['idpohon'] = $k->idpohon;
+      $b['species'] = $k->species;
+      $b['family'] = $k->family;
+      $b['localname'] = $k->localname;
+      $b['diameter'] = $k->diameter;
+      $b['tinggi'] = $k->tinggi;
+      $b['keliling'] = $k->keliling;
+      $b['adopted'] = $k->adopted;
+      $b['beku'] = $k->beku;
+      $b['beku_alasan'] = $k->beku_alasan;
+      $b['beku_sampai'] = $k->beku_sampai;
+      $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+      $b['reserved_name'] = $k->reserved_name;
+      $b['price'] = $k->price;
+      $b['cur'] = $k->cur;
+      $b['harga'] = $k->harga;
+      $b['foto_pohon'] = $k->foto_pohon;
+      $b['highlight'] = $k->highlight;
+      $b['tgl_exp'] = array_key_exists($k->idpohon, $expMap) ? $expMap[$k->idpohon] : "-";
+      array_push($items, $b);
+
+      $d = $k->desa;
+      $jumlahDesa[$d] = isset($jumlahDesa[$d]) ? $jumlahDesa[$d] + 1 : 1;
+    }
+
+    return response()->json([
+      'items' => $items,
+      'desa' => (object) $jumlahDesa,
+      'jumlah' => count($items),
+    ]);
+  }
+
   public function pohonmapall(){
     $this->bukaBekuKedaluwarsa();
      
