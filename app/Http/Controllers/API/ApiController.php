@@ -5148,83 +5148,139 @@ public function confirmasipembayaran(Request $request){
     ]);
   }
 
-  public function pohonmapall(){
+  // Peta satu baris Pohon → array JSON (dipakai pohonmapall mode penuh
+  // maupun mode paginasi).
+  private function pohonBaris($k): array {
+    $b['id'] = $k->id;
+    $b['gpscode'] = $k->gpscode;
+    $b['latitude'] = $k->latitude;
+    $b['longitude'] = $k->longitude;
+    $b['desa'] = $k->desa;
+    $b['idpohon'] = $k->idpohon;
+    $b['species'] = $k->species;
+    $b['family'] = $k->family;
+    $b['localname'] = $k->localname;
+    $b['status'] = $k->status;
+    $b['jenis'] = $k->jenis;
+    $b['diameter'] = $k->diameter;
+    $b['tinggi'] = $k->tinggi;
+    $b['keliling'] = $k->keliling;
+    $b['dpl'] = $k->dpl;
+    $b['slope'] = $k->slope;
+    $b['manfaat'] = $k->manfaat;
+    $b['soil'] = $k->soil;
+    $b['surveyor'] = $k->surveyor;
+    $b['tgl_survey'] = $k->tgl_survey;
+    $b['fotografer'] = $k->fotografer;
+    $b['dilihat'] = $k->dilihat;
+    $b['hit'] = $k->hit;
+    $b['beku'] = $k->beku;
+    $b['beku_alasan'] = $k->beku_alasan;
+    $b['beku_sampai'] = $k->beku_sampai;
+    $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
+    $b['reserved_name'] = $k->reserved_name;
+    $b['reserved_at'] = $k->reserved_at;
+    $b['score'] = $k->score;
+    $b['tgl_pesan'] = $k->tgl_pesan;
+    $b['tgl_adopt'] = $k->tgl_adopt;
+    $b['price'] = $k->price;
+    $b['cur'] = $k->cur;
+    $b['adopted'] = $k->adopted;
+    $b['dur'] = $k->dur;
+    $b['methode'] = $k->methode;
+
+    $caripengasuh=Member::where("id",$k->pengasuh)->first();
+    if($caripengasuh){
+        $namapengasuh=$caripengasuh->name;
+    }else{
+        $namapengasuh="-";
+    }
+
+    $b['pengasuh'] = $namapengasuh;
+    $b['gfrom'] = $k->gfrom;
+    $b['nama'] = $k->nama;
+    $b['catatan'] = $k->catatan;
+    $b['admin'] = $k->admin;
+    $b['proses'] = $k->proses;
+    $b['keterangan'] = $k->keterangan;
+    $b['qrcode'] = $k->qrcode;
+    $b['harga'] = $k->harga;
+    $b['asl'] = $k->asl;
+    $b['foto_pohon'] = $k->foto_pohon;
+    $b['tgl_adopt'] = $k->tgl_adopt;
+    $b['highlight'] = $k->highlight;
+    $cariexp=Dataadopsi::where("idpohon",$k->idpohon)->first();
+    if($cariexp){
+        $exp=$cariexp->tgl_exp;
+    }else{
+        $exp="-";
+    }
+
+    $b['tgl_exp'] = $exp;
+
+    return $b;
+  }
+
+  public function pohonmapall(Request $request){
     $this->bukaBekuKedaluwarsa();
-     
+
+    // Mode paginasi (halaman admin Kelola Pohon): bila parameter `page` ada,
+    // kembalikan { data, total } dengan filter server-side agar tidak mengirim
+    // ribuan baris. Tanpa parameter → perilaku lama (array penuh) untuk
+    // pemakai lain (peta, dsb).
+    $halaman = (int) $request->query('page', 0);
+    if ($halaman > 0) {
+      $perPage = min(200, max(1, (int) $request->query('per_page', 50)));
+      $q = trim((string) $request->query('q', ''));
+      $desa = trim((string) $request->query('desa', ''));
+      $status = strtoupper(trim((string) $request->query('status', '')));
+      $unggulan = (string) $request->query('unggulan', '');
+      $sort = trim((string) $request->query('sort', ''));
+      $dir = strtolower(trim((string) $request->query('dir', 'desc'))) === 'asc' ? 'asc' : 'desc';
+
+      $query = Pohon::query();
+      if ($desa !== '') $query->where('desa', $desa);
+      if ($q !== '') {
+        $query->where(function ($w) use ($q) {
+          $w->where('idpohon', 'like', "%{$q}%")
+            ->orWhere('localname', 'like', "%{$q}%")
+            ->orWhere('species', 'like', "%{$q}%");
+        });
+      }
+      if ($unggulan === '1') {
+        $query->where('highlight', 1);
+      } elseif ($unggulan === '0') {
+        $query->where(function ($w) {
+          $w->where('highlight', '!=', 1)->orWhereNull('highlight');
+        });
+      }
+      // Status efektif — sesuai hitungan tabel admin: reserved_admin menang
+      // atas beku, beku menang atas adopted.
+      switch ($status) {
+        case 'RESERVED_ADMIN': $query->where('reserved_admin', 1); break;
+        case 'FROZEN':         $query->where('reserved_admin', 0)->where('beku', 'yes'); break;
+        case 'AVAILABLE':      $query->where('reserved_admin', 0)->where('beku', '!=', 'yes')->where('adopted', 'available'); break;
+        case 'RESERVED':       $query->where('reserved_admin', 0)->where('beku', '!=', 'yes')->where('adopted', 'reserved'); break;
+        case 'ADOPTED':        $query->where('reserved_admin', 0)->where('beku', '!=', 'yes')->where('adopted', 'adopted'); break;
+      }
+      if ($sort === 'tinggi') {
+        // pohon tanpa data tinggi selalu di urutan bawah (perilaku tabel admin)
+        $query->orderByRaw("(tinggi IS NULL OR tinggi = 0) ASC, tinggi {$dir}");
+      }
+
+      $total = (clone $query)->count();
+      $rows = $query->forPage($halaman, $perPage)->get();
+      $items = array();
+      foreach ($rows as $k) $items[] = $this->pohonBaris($k);
+      return response()->json(['data' => $items, 'total' => $total]);
+    }
+
     //$data=Pohon::where([['highlight',2],['adopted','available']])->get();
     $data=Pohon::all();
     if(count($data)>0){
       $items = array();
       foreach ($data as $k) {
-        $b['id'] = $k->id;
-        $b['gpscode'] = $k->gpscode;
-        $b['latitude'] = $k->latitude;
-        $b['longitude'] = $k->longitude;
-        $b['desa'] = $k->desa;
-        $b['idpohon'] = $k->idpohon;
-        $b['species'] = $k->species;
-        $b['family'] = $k->family;
-        $b['localname'] = $k->localname;
-        $b['status'] = $k->status;
-        $b['jenis'] = $k->jenis;
-        $b['diameter'] = $k->diameter;
-        $b['tinggi'] = $k->tinggi;
-        $b['keliling'] = $k->keliling;
-        $b['dpl'] = $k->dpl;
-        $b['slope'] = $k->slope;
-        $b['manfaat'] = $k->manfaat;
-        $b['soil'] = $k->soil;
-        $b['surveyor'] = $k->surveyor;
-        $b['tgl_survey'] = $k->tgl_survey;
-        $b['fotografer'] = $k->fotografer;
-        $b['dilihat'] = $k->dilihat;
-        $b['hit'] = $k->hit;
-        $b['beku'] = $k->beku;
-        $b['beku_alasan'] = $k->beku_alasan;
-        $b['beku_sampai'] = $k->beku_sampai;
-        $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
-        $b['reserved_name'] = $k->reserved_name;
-        $b['reserved_at'] = $k->reserved_at;
-        $b['score'] = $k->score;
-        $b['tgl_pesan'] = $k->tgl_pesan;
-        $b['tgl_adopt'] = $k->tgl_adopt;
-        $b['price'] = $k->price;
-        $b['cur'] = $k->cur;
-        $b['adopted'] = $k->adopted;
-        $b['dur'] = $k->dur;
-        $b['methode'] = $k->methode;
-        
-        $caripengasuh=Member::where("id",$k->pengasuh)->first();
-        if($caripengasuh){
-            $namapengasuh=$caripengasuh->name;
-        }else{
-            $namapengasuh="-";
-        }
-        
-        $b['pengasuh'] = $namapengasuh;
-        $b['gfrom'] = $k->gfrom;
-        $b['nama'] = $k->nama;
-        $b['catatan'] = $k->catatan;
-        $b['admin'] = $k->admin;
-        $b['proses'] = $k->proses;
-        $b['keterangan'] = $k->keterangan;
-        $b['qrcode'] = $k->qrcode;
-        $b['harga'] = $k->harga;
-        $b['asl'] = $k->asl;
-        $b['foto_pohon'] = $k->foto_pohon;
-        $b['tgl_adopt'] = $k->tgl_adopt;
-        $b['highlight'] = $k->highlight;
-          $cariexp=Dataadopsi::where("idpohon",$k->idpohon)->first();
-        if($cariexp){
-            $exp=$cariexp->tgl_exp;
-        }else{
-            $exp="-";
-        }
-        
-        
-        $b['tgl_exp'] = $exp;
-                
-        array_push($items, $b);
+        $items[] = $this->pohonBaris($k);
       }
       return response()->json($items);
     }else {
