@@ -167,6 +167,7 @@ Route::post('bekukanpohon', [ApiController::class, 'bekukanpohon']);
 Route::post('bekukanpohonbanyak', [ApiController::class, 'bekukanpohonbanyak']);
 Route::post('bekukandesa', [ApiController::class, 'bekukandesa']);
 Route::post('pesanpohonadmin', [ApiController::class, 'pesanpohonadmin']);
+Route::post('pesanpohonadminbanyak', [ApiController::class, 'pesanpohonadminbanyak']);
 Route::post('batalpesanpohonadmin', [ApiController::class, 'batalpesanpohonadmin']);
 Route::post('ajukanbeku', [ApiController::class, 'ajukanbeku']);
 Route::post('getpengajuanbeku', [ApiController::class, 'getpengajuanbeku']);

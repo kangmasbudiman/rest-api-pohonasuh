@@ -2105,6 +2105,14 @@ public function updateduration(Request $request){
         // terbitkan nomor sertifikat untuk order yang baru diverifikasi
         $this->isiCertnum($cariidpengasuh->invoice);
 
+        // Pohon dari reservasi admin yang dibayar bukan lagi "Dipesan Admin"
+        // — statusnya mengikuti alur order biasa (reserved → adopted saat
+        // tagging selesai). Order publik tak terpengaruh (flag-nya memang 0).
+        foreach (Dataadopsi::where('invoice', $cariidpengasuh->invoice)->pluck('idpohon')->unique() as $kode) {
+          Pohon::where('idpohon', $kode)->where('reserved_admin', 1)
+            ->update(['reserved_admin' => 0, 'reserved_name' => null]);
+        }
+
                      return response()->json(
                         [
                           'message'=> "Succes Verivication",
@@ -2207,7 +2215,10 @@ public function updateduration(Request $request){
   // tersentuh (±90 order pending 2018–2023 milik donor lama — membatalkan
   // sekaligus akan mengirim notifikasi tidak relevan bertahun-tahun kemudian).
   private function kedaluwarsaPembayaran(){
+    // methode 'Admin' = order reservasi admin — menunggu pembayaran oleh
+    // pihak terkait, tidak boleh dibatalkan otomatis 24 jam.
     $konf = Confirmasi::where('confirmation','no')
+      ->where('methode','!=','Admin')
       ->where(function($q){ $q->whereNull('foto')->orWhere('foto',''); })
       ->where('created_at','<', now()->subDay())
       ->where('created_at','>', now()->subDays(7))
@@ -6713,7 +6724,9 @@ public function confirmasipembayaran(Request $request){
     ]);
   }
 
-  // Batalkan reservasi admin → pohon kembali tersedia.
+  // Batalkan reservasi admin → pohon kembali tersedia. Order/invoice admin
+  // yang belum diverifikasi ikut dibersihkan (baris Dataadopsi dihapus;
+  // Confirmasi dibatalkan bila tanpa baris tersisa).
   public function batalpesanpohonadmin(Request $request){
     $idpohon = trim((string) $request->input('idpohon'));
     $p = Pohon::where('idpohon', $idpohon)->first();
@@ -6729,7 +6742,134 @@ public function confirmasipembayaran(Request $request){
     $p->reserved_at = null;
     $p->tgl_pesan = null;
     $p->update();
+
+    $adopsiRows = Dataadopsi::where('idpohon', $idpohon)->where('admin', 1)->get();
+    foreach ($adopsiRows as $a) {
+      $konf = Confirmasi::where('invoice', $a->invoice)
+        ->where('methode', 'Admin')
+        ->where('confirmation', 'no')
+        ->first();
+      if (!$konf) continue; // order sudah diverifikasi/batal — jangan disentuh
+      Fototaging::where('idadopsi', $a->id)->delete();
+      Pembayarantagging::where('idadopsi', $a->id)->delete();
+      $a->delete();
+      if (Dataadopsi::where('invoice', $a->invoice)->count() === 0) {
+        $konf->confirmation = 'cancel';
+        $konf->confirmationBy = 'admin';
+        $konf->update();
+      }
+    }
+
     return response()->json(['value' => '200', 'pesan' => 'Reservasi dibatalkan — pohon kembali tersedia.']);
+  }
+
+  // Pesan BANYAK pohon untuk admin sekaligus dan LANGSUNG menjadi
+  // order/invoice: satu Confirmasi (methode='Admin', confirmation='no') +
+  // satu baris Dataadopsi per pohon, sehingga muncul di Verifikasi
+  // Pembayaran dan mengikuti alur bayar → verifikasi → sertifikat seperti
+  // order pengunjung. Marker methode='Admin' juga mengecualikan pesanan
+  // admin dari kedaluwarsa pembayaran 24 jam otomatis.
+  public function pesanpohonadminbanyak(Request $request){
+    $this->bukaBekuKedaluwarsa();
+
+    $kodeList = collect(preg_split('/[\s,]+/', trim((string) $request->input('idpohon'))))
+      ->map(fn ($c) => trim($c))
+      ->filter()
+      ->unique()
+      ->values();
+    $nama = mb_substr(trim((string) $request->input('nama')), 0, 255);
+    $email = mb_substr(trim((string) $request->input('email')), 0, 255);
+    $dur = max(1, min(10, (int) $request->input('dur', 1)));
+    if ($kodeList->isEmpty() || $nama === '') {
+      return response()->json(['value' => '400', 'pesan' => 'Kode pohon dan nama pemesan wajib diisi'], 400);
+    }
+
+    // Validasi dulu semua pohon — satu pun tak bisa dipesan → dikumpulkan
+    // sebagai dilewati, bukan gagal total.
+    $pohonOk = [];
+    $gagal = [];
+    foreach ($kodeList as $kode) {
+      $p = Pohon::where('idpohon', $kode)->first();
+      if (!$p || !$this->pohonBisaDiadopsi($p)) {
+        $gagal[] = $kode;
+        continue;
+      }
+      $pohonOk[] = $p;
+    }
+    if (count($pohonOk) === 0) {
+      return response()->json(
+        ['value' => '409', 'pesan' => 'Tidak ada pohon yang bisa dipesan — sudah diadopsi, dipesan, atau dibekukan: ' . implode(', ', $gagal)],
+        409,
+      );
+    }
+
+    $tanggal = date('Y-m-d');
+    $total = 0;
+    foreach ($pohonOk as $p) {
+      $total += ((int) ($p->harga ?? 0)) * $dur;
+    }
+
+    DB::beginTransaction();
+    try {
+      $invoice = $this->buatInvoiceAcak();
+      $konf = new Confirmasi();
+      $konf->invoice = $invoice;
+      $konf->tgl_pesan = $tanggal;
+      $konf->idpengasuh = 0; // pesanan admin — tanpa akun member
+      $konf->name = $nama;
+      $konf->email = $email;
+      $konf->methode = 'Admin';
+      $konf->cur = 'IDR';
+      $konf->price = $total;
+      $konf->tanggal = $tanggal;
+      $konf->jml_pohon = count($pohonOk);
+      $konf->confirmation = 'no';
+      $konf->foto = null;
+      $konf->save();
+
+      foreach ($pohonOk as $p) {
+        $adopsi = new Dataadopsi();
+        $adopsi->idpohon = $p->idpohon;
+        $adopsi->desa = $p->desa;
+        $adopsi->pengasuh = 0;
+        $adopsi->nama = $nama;
+        $adopsi->price = ((int) ($p->harga ?? 0)) * $dur;
+        $adopsi->cur = 'IDR';
+        $adopsi->methode = 'Transfer';
+        $adopsi->tgl_adopt = $tanggal;
+        $adopsi->gfrom = 0;
+        $adopsi->certnum = '';
+        $adopsi->memo = '';
+        $adopsi->admin = 1; // penanda baris dibuat via reservasi admin
+        $adopsi->proses = 1;
+        $adopsi->invoice = $invoice;
+        $adopsi->dur = $dur;
+        $adopsi->tgl_exp = date('Y-m-d', strtotime("+{$dur} year", strtotime($tanggal)));
+        $adopsi->save();
+
+        $p->adopted = 'reserved';
+        $p->reserved_admin = 1;
+        $p->reserved_name = $nama;
+        $p->reserved_at = now();
+        $p->tgl_pesan = $tanggal;
+        $p->update();
+      }
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      Log::error('pesanpohonadminbanyak gagal: ' . $e->getMessage());
+      return response()->json(['value' => '500', 'pesan' => 'Gagal membuat pesanan: ' . $e->getMessage()], 500);
+    }
+
+    return response()->json([
+      'value' => '200',
+      'invoice' => $invoice,
+      'id' => $konf->id,
+      'jumlah' => count($pohonOk),
+      'dilewati' => count($gagal),
+      'total' => $total,
+      'pesan' => count($pohonOk) . ' pohon dipesan untuk ' . $nama . ' — invoice ' . $invoice,
+    ]);
   }
 
   public function register (Request $request){
