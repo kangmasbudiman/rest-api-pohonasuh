@@ -6777,12 +6777,21 @@ public function confirmasipembayaran(Request $request){
       ->filter()
       ->unique()
       ->values();
-    $nama = mb_substr(trim((string) $request->input('nama')), 0, 255);
-    $email = mb_substr(trim((string) $request->input('email')), 0, 255);
+    $idMember = (int) $request->input('idmember', 0);
+    $namaOverride = mb_substr(trim((string) $request->input('nama')), 0, 255);
+    $emailOverride = mb_substr(trim((string) $request->input('email')), 0, 255);
     $dur = max(1, min(10, (int) $request->input('dur', 1)));
-    if ($kodeList->isEmpty() || $nama === '') {
-      return response()->json(['value' => '400', 'pesan' => 'Kode pohon dan nama pemesan wajib diisi'], 400);
+    if ($kodeList->isEmpty() || $idMember <= 0) {
+      return response()->json(['value' => '400', 'pesan' => 'Kode pohon dan akun pemesan wajib dipilih'], 400);
     }
+
+    $member = Member::find($idMember);
+    if (!$member) {
+      return response()->json(['value' => '404', 'pesan' => 'Akun pemesan tidak ditemukan'], 404);
+    }
+    $nama = $namaOverride !== '' ? $namaOverride : (string) $member->name;
+    $email = $emailOverride !== '' ? $emailOverride : (string) ($member->emaile ?? '');
+    $nama = mb_substr($nama, 0, 255);
 
     // Validasi dulu semua pohon — satu pun tak bisa dipesan → dikumpulkan
     // sebagai dilewati, bukan gagal total.
@@ -6815,7 +6824,7 @@ public function confirmasipembayaran(Request $request){
       $konf = new Confirmasi();
       $konf->invoice = $invoice;
       $konf->tgl_pesan = $tanggal;
-      $konf->idpengasuh = 0; // pesanan admin — tanpa akun member
+      $konf->idpengasuh = $idMember; // akun pemesan yang ditunjuk admin
       $konf->name = $nama;
       $konf->email = $email;
       $konf->methode = 'Admin';
@@ -6831,7 +6840,7 @@ public function confirmasipembayaran(Request $request){
         $adopsi = new Dataadopsi();
         $adopsi->idpohon = $p->idpohon;
         $adopsi->desa = $p->desa;
-        $adopsi->pengasuh = 0;
+        $adopsi->pengasuh = $idMember;
         $adopsi->nama = $nama;
         $adopsi->price = ((int) ($p->harga ?? 0)) * $dur;
         $adopsi->cur = 'IDR';
@@ -6859,6 +6868,21 @@ public function confirmasipembayaran(Request $request){
       DB::rollBack();
       Log::error('pesanpohonadminbanyak gagal: ' . $e->getMessage());
       return response()->json(['value' => '500', 'pesan' => 'Gagal membuat pesanan: ' . $e->getMessage()], 500);
+    }
+
+    // Beri tahu akun pemesan yang ditunjuk admin agar ia bisa upload bukti
+    // pembayaran (via app/web dashboard) — pohon dipesan atas namanya.
+    try {
+      $pesan = new Pesan();
+      $pesan->idmember = $idMember;
+      $pesan->pesan = "Admin membuat pesanan untuk Anda: " . count($pohonOk) . " pohon (invoice {$invoice}). Silakan upload bukti pembayaran.";
+      $pesan->pesan_en = "Admin created an order for you: " . count($pohonOk) . " trees (invoice {$invoice}). Please upload your payment proof.";
+      $pesan->link = '/dashboard';
+      $pesan->status = "noread";
+      $pesan->save();
+      $this->kirimPush($idMember, 'Pesanan dari Admin', "Admin membuat pesanan untuk Anda — invoice {$invoice}.");
+    } catch (\Throwable $e) {
+      Log::error('notifikasi pesanpohonadminbanyak gagal: ' . $e->getMessage());
     }
 
     return response()->json([
