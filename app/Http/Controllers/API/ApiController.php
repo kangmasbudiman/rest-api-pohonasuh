@@ -5204,6 +5204,7 @@ public function confirmasipembayaran(Request $request){
     $b['beku_sampai'] = $k->beku_sampai;
     $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
     $b['reserved_name'] = $k->reserved_name;
+    $b['mitra_id'] = $k->mitra_id ? (int) $k->mitra_id : null;
     $b['reserved_at'] = $k->reserved_at;
     $b['score'] = $k->score;
     $b['tgl_pesan'] = $k->tgl_pesan;
