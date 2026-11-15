@@ -9396,4 +9396,54 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Desain tagging disimpan','tagging_template'=>$program->tagging_template]);
   }
 
+
+  // Mitra edit profil lembaga sendiri (bukan nama lembaga & slug — tetap).
+  public function editmitraprofil(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $mitra = Mitra::find($m->mitra_id);
+    if (!$mitra) {
+      return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+    }
+    $mitra->alamat = $request->input('alamat', $mitra->alamat);
+    $mitra->nama_pj = $request->input('nama_pj', $mitra->nama_pj);
+    $mitra->email = $request->input('email', $mitra->email);
+    $mitra->hp = $request->input('hp', $mitra->hp);
+    if ($request->filled('logo')) $mitra->logo = $request->input('logo');
+    $mitra->save();
+
+    // update juga profil member (nama_pJ/kontak)
+    $m->name = trim((string)$request->input('nama_pj', $m->name)) ?: $m->name;
+    $m->hp = $request->input('hp', $m->hp);
+    $m->save();
+
+    return response()->json(['value'=>'200','pesan'=>'Profil lembaga diperbarui']);
+  }
+
+  // Ganti password member mitra (wajib tahu password lama).
+  public function gantipasswordmitra(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $passwordLama = (string) $request->input('password_lama');
+    $passwordBaru = (string) $request->input('password_baru');
+    if ($passwordLama === '' || $passwordBaru === '') {
+      return response()->json(['value'=>'400','pesan'=>'Password lama & baru wajib diisi'], 400);
+    }
+    if (strlen($passwordBaru) < 6) {
+      return response()->json(['value'=>'400','pesan'=>'Password baru minimal 6 karakter'], 400);
+    }
+    $m = Member::find($idMember);
+    if (!$m) {
+      return response()->json(['value'=>'404','pesan'=>'Member tidak ditemukan'], 404);
+    }
+    if (md5(sha1($passwordLama)) !== $m->passe) {
+      return response()->json(['value'=>'403','pesan'=>'Password lama salah'], 403);
+    }
+    $m->passe = md5(sha1($passwordBaru));
+    $m->save();
+    return response()->json(['value'=>'200','pesan'=>'Password berhasil diubah']);
+  }
+
 }
