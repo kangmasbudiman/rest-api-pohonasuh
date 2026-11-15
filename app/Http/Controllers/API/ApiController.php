@@ -8628,7 +8628,11 @@ public function confirmasipembayaran(Request $request){
 
   // ===== Mitra (partner adopsi) =====
   public function mitralist(){
-    $data = Mitra::orderBy('nama')->get();
+    $data = Mitra::orderBy('nama')->get()->map(function ($m) {
+      $akun = Member::where('mitra_id', $m->id)->first(['id','name','emaile','aktif']);
+      $m->akun = $akun ? ['id'=>$akun->id,'name'=>$akun->name,'emaile'=>$akun->emaile,'aktif'=>(int)$akun->aktif] : null;
+      return $m;
+    });
     return response()->json($data);
   }
 
