@@ -7033,8 +7033,16 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value' => '0', 'pesan' => 'Token kedaluwarsa — silakan kirim ulang email verifikasi']);
     }
     DB::table('member')->where('emaile', $row->email)->update(['confirmed' => 'yes']);
+    // Buat token sumber_info (1x pakai) untuk layar "dari mana Anda tahu Pohon Asuh?"
+    $sumberToken = bin2hex(random_bytes(16));
+    DB::table('email_tokens')->insert([
+      'email' => $row->email,
+      'jenis' => 'verifikasi_sumber_info',
+      'token_hash' => hash('sha256', $sumberToken),
+      'created_at' => now(),
+    ]);
     DB::table('email_tokens')->where('id', $row->id)->delete();
-    return response()->json(['value' => '1', 'pesan' => 'Email berhasil diverifikasi. Silakan masuk.']);
+    return response()->json(['value' => '1', 'pesan' => 'Silakan pilih dari mana Anda tahu Pohon Asuh', 'sumber_token' => $sumberToken]);
   }
 
   public function kirimulangverifikasi(Request $request){
