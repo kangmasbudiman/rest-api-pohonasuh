@@ -1094,7 +1094,7 @@ public function allcertificate(){
             ->leftJoin('data_pohon', 'data_pohon.idpohon', '=', 'data_adopsi.idpohon')
             ->groupBy('data_adopsi.id')
             ->orderByDesc('data_adopsi.id')
-            ->selectRaw("data_adopsi.id, data_adopsi.desa, data_adopsi.idpohon, data_adopsi.nama, member.name as donatur, MIN(data_pohon.diameter) as diameter, MIN(data_pohon.localname) as localname, (MIN(data_pohon.adopted) = 'adopted') as tagged, data_adopsi.certnum, data_adopsi.dur, data_adopsi.price, data_adopsi.cur, data_adopsi.methode, data_adopsi.tgl_adopt, data_adopsi.tgl_exp, data_adopsi.invoice, data_adopsi.proses")
+            ->selectRaw("data_adopsi.id, data_adopsi.desa, data_adopsi.idpohon, data_adopsi.nama, member.name as donatur, MIN(data_pohon.diameter) as diameter, MIN(data_pohon.localname) as localname, (MIN(data_pohon.adopted) = 'adopted') as tagged, data_adopsi.certnum, data_adopsi.dur, data_adopsi.price, data_adopsi.cur, data_adopsi.methode, data_adopsi.tgl_adopt, data_adopsi.tgl_exp, data_adopsi.invoice, data_adopsi.proses, data_adopsi.mitra_id")
             ->get()
             ->map(function ($r) {
                 return [
@@ -1115,6 +1115,7 @@ public function allcertificate(){
                     'tgl_exp' => $r->tgl_exp,
                     'invoice' => $r->invoice,
                     'proses' => $r->proses,
+                    'mitra_id' => $r->mitra_id ? (int) $r->mitra_id : null,
                 ];
             });
 
@@ -3463,7 +3464,8 @@ public function confirmasipembayaran(Request $request){
             data_adopsi.created_at,
             data_adopsi.updated_at,
             data_adopsi.tgl_exp,
-            data_adopsi.desa
+            data_adopsi.desa,
+            data_adopsi.mitra_id
         ')
         ->distinct() // Hindari duplikasi
         ->orderBy('data_adopsi.tgl_adopt', 'desc')
@@ -3532,6 +3534,7 @@ public function confirmasipembayaran(Request $request){
                 'foto' => $fotopembayaran,
                 'fotopembayaran' => !empty($fotopembayaran) ? $request->getSchemeAndHttpHost().str_replace('/index.php', '', $request->getBaseUrl()).'/upload/slider/'.$fotopembayaran  : "",
                 'desa' => $k->desa,
+                'mitra_id' => $k->mitra_id ? (int) $k->mitra_id : null,
                 // Total dari tabel confirmation (sudah termasuk kode unik) dan
                 // jumlah pohon per invoice — dipakai app utk mengelompokkan order.
                 'total' => $cekconfirm ? $cekconfirm->price : $k->price,
