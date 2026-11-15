@@ -9169,4 +9169,145 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Registrasi mitra berhasil, menunggu aktivasi admin.','id'=>$mitra->id,'email'=>$email]);
   }
 
+
+  // ===== Pesanan Pohon Mitra (lokasi + jumlah, menunggu approval admin) =====
+  public function mitrarequesorder(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $mitraId = (int) $m->mitra_id;
+    $jumlah = (int) $request->input('jumlah');
+    if ($jumlah < 1 || $jumlah > 500) {
+      return response()->json(['value'=>'400','pesan'=>'Jumlah pohon harus 1-500'], 400);
+    }
+    $desa = trim((string)$request->input('desa'));
+    $programId = $request->input('program_id') ? (int)$request->input('program_id') : null;
+    $catatan = trim((string)$request->input('catatan'));
+
+    DB::beginTransaction();
+    try {
+      DB::table('mitra_pesanan')->insert([
+        'mitra_id' => $mitraId,
+        'idmember' => $idMember,
+        'program_id' => $programId,
+        'desa' => $desa !== '' ? $desa : null,
+        'jumlah' => $jumlah,
+        'catatan' => $catatan !== '' ? $catatan : null,
+        'status' => 'pending',
+        'created_at' => now(),
+        'updated_at' => now(),
+      ]);
+      $id = (int) DB::getPdo()->lastInsertId();
+      DB::commit();
+      return response()->json(['value'=>'200','id'=>$id,'pesan'=>'Permintaan pemesanan terkirim, menunggu approval admin.']);
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      return response()->json(['value'=>'500','pesan'=>'Gagal mengirim pesanan: '.$e->getMessage()], 500);
+    }
+  }
+
+  public function mitramypesanan(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $rows = DB::table('mitra_pesanan as p')
+      ->leftJoin('program_mitra as pm', 'pm.id', '=', 'p.program_id')
+      ->where('p.mitra_id', $m->mitra_id)
+      ->select('p.*', 'pm.nama as program_nama')
+      ->orderByDesc('p.id')
+      ->get();
+    return response()->json($rows);
+  }
+
+  public function mitrapendingpesanan(){
+    $rows = DB::table('mitra_pesanan as p')
+      ->join('mitra as m', 'm.id', '=', 'p.mitra_id')
+      ->join('member as u', 'u.id', '=', 'p.idmember')
+      ->leftJoin('program_mitra as pm', 'pm.id', '=', 'p.program_id')
+      ->where('p.status', 'pending')
+      ->select('p.*', 'm.nama as mitra_nama', 'u.name as member_nama', 'pm.nama as program_nama')
+      ->orderBy('p.id')
+      ->get();
+    return response()->json($rows);
+  }
+
+  // Admin approve → alokasi N pohon tersedia (dari desa yang diminta atau semua) ke mitra.
+  public function mitraapprovepesanan(Request $request){
+    $reqId = (int) $request->input('id');
+    $adminId = (int) $request->input('iduser', 0);
+    $req = DB::table('mitra_pesanan')->where('id', $reqId)->where('status', 'pending')->first();
+    if (!$req) {
+      return response()->json(['value'=>'404','pesan'=>'Pesanan tidak ditemukan / sudah diproses'], 404);
+    }
+    $mitra = Mitra::find($req->mitra_id);
+    if (!$mitra) {
+      return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+    }
+
+    // cari pohon tersedia di desa diminta (atau semua desa)
+    $query = Pohon::where('adopted', 'available')
+      ->where('beku', '!=', 'yes')
+      ->whereNull('mitra_id')
+      ->where('reserved_admin', 0);
+    if ($req->desa) {
+      $query->where('desa', $req->desa);
+    }
+    $rows = $query->orderBy('id')->limit((int)$req->jumlah)->get();
+    if ($rows->count() < (int)$req->jumlah) {
+      return response()->json(
+        ['value'=>'409','pesan'=>'Pohon tersedia tidak cukup (diminta '.$req->jumlah.', tersedia '.$rows->count().')'],
+        409,
+      );
+    }
+
+    DB::beginTransaction();
+    try {
+      foreach ($rows as $p) {
+        $p->adopted = 'reserved';
+        $p->mitra_id = $req->mitra_id;
+        $p->reserved_name = $mitra->nama;
+        $p->reserved_at = now();
+        $p->tgl_pesan = date('Y-m-d');
+        $p->update();
+
+        DB::table('mitra_hold_request')->insert([
+          'mitra_id' => $req->mitra_id,
+          'idmember' => $req->idmember,
+          'idpohon' => $p->idpohon,
+          'program_id' => $req->program_id,
+          'status' => 'approved',
+          'approved_by' => $adminId,
+          'approved_at' => now(),
+          'created_at' => now(),
+          'updated_at' => now(),
+        ]);
+      }
+      DB::table('mitra_pesanan')->where('id', $reqId)->update([
+        'status' => 'approved',
+        'approved_by' => $adminId,
+        'approved_at' => now(),
+        'updated_at' => now(),
+      ]);
+      DB::commit();
+      return response()->json(['value'=>'200','pesan'=>$rows->count().' pohon dialokasikan untuk '.$mitra->nama,'jumlah'=>$rows->count()]);
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      return response()->json(['value'=>'500','pesan'=>'Gagal alokasi: '.$e->getMessage()], 500);
+    }
+  }
+
+  public function mitrarejectpesanan(Request $request){
+    $reqId = (int) $request->input('id');
+    $row = DB::table('mitra_pesanan')->where('id', $reqId)->where('status', 'pending')->first();
+    if (!$row) {
+      return response()->json(['value'=>'404','pesan'=>'Pesanan tidak ditemukan / sudah diproses'], 404);
+    }
+    DB::table('mitra_pesanan')->where('id', $reqId)->update(['status'=>'rejected','updated_at'=>now()]);
+    return response()->json(['value'=>'200','pesan'=>'Pesanan ditolak']);
+  }
+
 }
