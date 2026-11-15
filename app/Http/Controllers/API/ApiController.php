@@ -2220,6 +2220,7 @@ public function updateduration(Request $request){
     // pihak terkait, tidak boleh dibatalkan otomatis 24 jam.
     $konf = Confirmasi::where('confirmation','no')
       ->where('methode','!=','Admin')
+      ->where('methode','!=','Mitra')
       ->where(function($q){ $q->whereNull('foto')->orWhere('foto',''); })
       ->where('created_at','<', now()->subDay())
       ->where('created_at','>', now()->subDays(7))
