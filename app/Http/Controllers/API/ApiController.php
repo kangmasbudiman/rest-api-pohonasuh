@@ -7037,7 +7037,7 @@ public function confirmasipembayaran(Request $request){
     $sumberToken = bin2hex(random_bytes(16));
     DB::table('email_tokens')->insert([
       'email' => $row->email,
-      'jenis' => 'verifikasi_sumber_info',
+      'jenis' => 'sumber',
       'token_hash' => hash('sha256', $sumberToken),
       'created_at' => now(),
     ]);
@@ -9463,7 +9463,7 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value'=>'400','pesan'=>'token dan sumber_info wajib diisi'], 400);
     }
     $row = DB::table('email_tokens')
-      ->where('jenis', 'verifikasi_sumber_info')
+      ->where('jenis', 'sumber')
       ->where('token_hash', hash('sha256', $token))
       ->where('created_at', '>', now()->subHours(2))
       ->first();
