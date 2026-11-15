@@ -9446,4 +9446,63 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Password berhasil diubah']);
   }
 
+
+  // Simpan jawaban "dari mana Anda tahu Pohon Asuh?" dari pengguna (token-based).
+  public function simpansumberinfo(Request $request){
+    $token = (string)$request->input('token');
+    $sumber = trim((string)$request->input('sumber_info'));
+    if ($token === '' || $sumber === '') {
+      return response()->json(['value'=>'400','pesan'=>'token dan sumber_info wajib diisi'], 400);
+    }
+    $row = DB::table('email_tokens')
+      ->where('jenis', 'verifikasi_sumber_info')
+      ->where('token_hash', hash('sha256', $token))
+      ->where('created_at', '>', now()->subHours(2))
+      ->first();
+    if (!$row) {
+      return response()->json(['value'=>'403','pesan'=>'Token tidak dikenal atau kedaluwarsa'], 403);
+    }
+    $member = Member::where('emaile', $row->email)->first();
+    if (!$member) {
+      return response()->json(['value'=>'404','pesan'=>'Member tidak ditemukan'], 404);
+    }
+    $member->sumber_info = mb_substr($sumber, 0, 80);
+    $member->save();
+    DB::table('email_tokens')->where('id', $row->id)->delete();
+    return response()->json(['value'=>'1','pesan'=>'Terima kasih atas jawabannya!']);
+  }
+
+  // Admin: daftar sumber info pengguna (untuk dashboard admin).
+  public function sumberinfoadmn(Request $request){
+    $k = env('ADMIN_API_KEY', '');
+    if ($k === '' || !hash_equals($k, (string) $request->header('X-Admin-Key', ''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $q = trim((string)$request->input('q', ''));
+    $perPage = min(500, max(1, (int)$request->input('per_page', 50)));
+    $query = Member::whereNotNull('sumber_info')
+      ->select('id', 'name', 'emaile', 'hp', 'alamat', 'sumber_info', 'tanggal', 'created_at');
+    if ($q !== '') {
+      $query->where(function ($w) use ($q) {
+        $w->where('name', 'like', "%{$q}%")
+          ->orWhere('emaile', 'like', "%{$q}%")
+          ->orWhere('sumber_info', 'like', "%{$q}%");
+      });
+    }
+    $total = (clone $query)->count();
+    $rows = $query->orderByDesc('created_at')->forPage((int)$request->input('page', 1), $perPage)->get();
+
+    $summary = [];
+    $sumsi = Member::whereNotNull('sumber_info')->selectRaw('sumber_info, COUNT(*) as jml')->groupBy('sumber_info')->get();
+    foreach ($sumsi as $s) {
+      $summary[$s->sumber_info] = (int)$s->jml;
+    }
+
+    return response()->json([
+      'data' => $rows,
+      'total' => $total,
+      'summary' => $summary,
+    ]);
+  }
+
 }

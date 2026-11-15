@@ -186,6 +186,8 @@ Route::post('mitrarequesorder', [ApiController::class, 'mitrarequesorder']);
 Route::post('settaggingprogrammitra', [ApiController::class, 'settaggingprogrammitra']);
 Route::post('editmitraprofil', [ApiController::class, 'editmitraprofil']);
 Route::post('gantipasswordmitra', [ApiController::class, 'gantipasswordmitra']);
+Route::post('simpansumberinfo', [ApiController::class, 'simpansumberinfo']);
+Route::get('sumberinfoadmn', [ApiController::class, 'sumberinfoadmn']);
 Route::post('mitramypesanan', [ApiController::class, 'mitramypesanan']);
 Route::get('mitrapendingpesanan', [ApiController::class, 'mitrapendingpesanan']);
 Route::post('mitraapprovepesanan', [ApiController::class, 'mitraapprovepesanan']);
