@@ -9296,6 +9296,18 @@ public function confirmasipembayaran(Request $request){
         'approved_at' => now(),
         'updated_at' => now(),
       ]);
+      try {
+        $pesan = new Pesan();
+        $pesan->idmember = $req->idmember;
+        $pesan->pesan = "Pesanan Anda disetujui: {$rows->count()} pohon dialokasikan.";
+        $pesan->pesan_en = "Your order has been approved: {$rows->count()} trees allocated.";
+        $pesan->link = '/mitra/pesanan';
+        $pesan->status = 'noread';
+        $pesan->save();
+        $this->kirimPush($req->idmember, 'Pesanan Disetujui', "{$rows->count()} pohon dialokasikan untuk Anda.");
+      } catch (\Throwable $e) {
+        Log::error('notifikasi mitraapprovepesanan gagal: '.$e->getMessage());
+      }
       DB::commit();
       return response()->json(['value'=>'200','pesan'=>$rows->count().' pohon dialokasikan untuk '.$mitra->nama,'jumlah'=>$rows->count()]);
     } catch (\Throwable $e) {
@@ -9311,6 +9323,18 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value'=>'404','pesan'=>'Pesanan tidak ditemukan / sudah diproses'], 404);
     }
     DB::table('mitra_pesanan')->where('id', $reqId)->update(['status'=>'rejected','updated_at'=>now()]);
+    try {
+      $pesan = new Pesan();
+      $pesan->idmember = $row->idmember;
+      $pesan->pesan = "Pesanan Anda ditolak. Silakan hubungi admin untuk keterangan lebih lanjut.";
+      $pesan->pesan_en = "Your order has been rejected. Please contact admin for details.";
+      $pesan->link = '/mitra/pesanan';
+      $pesan->status = 'noread';
+      $pesan->save();
+      $this->kirimPush($row->idmember, 'Pesanan Ditolak', 'Pesanan pohon Anda ditolak.');
+    } catch (\Throwable $e) {
+      Log::error('notifikasi mitrarejectpesanan gagal: '.$e->getMessage());
+    }
     return response()->json(['value'=>'200','pesan'=>'Pesanan ditolak']);
   }
 
