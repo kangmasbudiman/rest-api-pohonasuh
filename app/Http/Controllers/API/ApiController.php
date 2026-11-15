@@ -2174,6 +2174,16 @@ public function updateduration(Request $request){
   // sendiri DALAM desa yang sama. Pohon berdurasi beda dipisah pula karena
   // sertifikat hanya memuat satu masa berlaku — digabung, tanggal tercetak
   // menyesatkan (pohon 3 tahun ikut tercetak 1 tahun, atau sebaliknya).
+  // Nomor sertifikat untuk adopsi mitra berdasarkan nama program, bukan desa.
+  private function certnumBaruProgram($program){
+    $raw = trim((string)($program->nama ?? ''));
+    $slug = strtoupper(preg_replace('/[^A-Za-z0-9]/', '', $raw ?: 'MITRA'));
+    $slug = substr($slug, 0, 6) ?: 'MIT';
+    $kode = 'MRP-'.$slug;      // prefix: Mitra Program
+    $tahun = date('Y');
+    return sprintf('%03d/%s/%s', $this->urutCertnum($kode, $tahun), $kode, $tahun);
+  }
+
   // Urutan nomor tetap per desa (certnumBaru). Grup yang sudah bernomor
   // tidak diterbitkan ulang.
   private function isiCertnum($invoice){
@@ -2192,12 +2202,39 @@ public function updateduration(Request $request){
         $perGrup = $rows->groupBy(function ($r) {
           return $r->desa.'|'.trim((string)$r->nama).'|'.(int)$r->dur;
         });
+        $programIds = $rows->pluck('program_id')->filter()->unique()->values();
         foreach ($perGrup as $grp) {
           if (trim((string)$grp->first()->certnum) !== '') continue;
-          $certnum = $this->certnumBaru($grp->first()->desa);
+          $certnum = null;
+          if ($programIds->isNotEmpty()) {
+            $prog = $programIds->first();
+            if ($prog && ($prow = ProgramMitra::find($prog))) {
+              $certnum = $this->certnumBaruProgram($prow);
+            }
+          }
+          if (!$certnum) $certnum = $this->certnumBaru($grp->first()->desa);
           foreach ($grp as $r) {
             $r->certnum = $certnum;
             $r->save();
+          }
+        }
+
+        // Notifikasi ke akun mitra (jika ada) bahwa sertifikat terbit.
+        $mitraIds = $rows->pluck('mitra_id')->filter()->unique()->values();
+        if ($mitraIds->isNotEmpty()) {
+          foreach (Member::whereIn('mitra_id', $mitraIds)->get() as $m) {
+            try {
+              $pesan = new Pesan();
+              $pesan->idmember = $m->id;
+              $pesan->pesan = 'Sertifikat untuk pesanan Anda telah terbit. Anda dapat mengunduh & membagikannya dari portal mitra.';
+              $pesan->pesan_en = 'Your order certificates have been issued. Download and share them from the mitra portal.';
+              $pesan->link = '/mitra/sertifikat';
+              $pesan->status = 'noread';
+              $pesan->save();
+              $this->kirimPush($m->id, 'Sertifikat Terbit', 'Sertifikat Anda telah terbit.');
+            } catch (\Throwable $e) {
+              Log::error('notifikasi isiCertnum-mitra gagal: '.$e->getMessage());
+            }
           }
         }
       } finally {
