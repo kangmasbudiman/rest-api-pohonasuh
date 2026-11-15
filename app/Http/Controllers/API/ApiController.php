@@ -30,6 +30,7 @@ use App\Models\Dataadopsi;
 use App\Models\Detailimage;
 use App\Models\Pohonimage;
 use App\Models\Mitra;
+use App\Models\ProgramMitra;
 use App\Models\Testjson;
 use App\Models\Confirmasi;
 use App\Models\Pesan;
@@ -8741,6 +8742,7 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
     }
     $itemsRaw = $request->input('items');
+    $programId = $request->input('program_id') ? (int)$request->input('program_id') : null;
     $items = is_string($itemsRaw) ? json_decode($itemsRaw, true) : $itemsRaw;
     if (!is_array($items) || count($items) === 0) {
       return response()->json(['value'=>'400','pesan'=>'Daftar adopsi kosong'], 400);
@@ -8788,8 +8790,8 @@ public function confirmasipembayaran(Request $request){
       $konf->price = $total;
       $konf->tanggal = $today;
       $konf->jml_pohon = count($valid);
-      $konf->confirmation = 'yes';
-      $konf->confirmationBy = $adminId;
+      $konf->confirmation = 'no';
+      $konf->confirmationBy = null;
       $konf->foto = null;
       $konf->save();
 
@@ -8812,10 +8814,11 @@ public function confirmasipembayaran(Request $request){
         $adopsi->invoice = $invoice;
         $adopsi->dur = $v['dur'];
         $adopsi->mitra_id = $mitraId;
+        $adopsi->program_id = $programId;
         $adopsi->tgl_exp = date('Y-m-d', strtotime("+".$v['dur']." year", strtotime($v['tgl_adopt'])));
         $adopsi->save();
 
-        $p->adopted = 'adopted';
+        $p->adopted = 'reserved';
         $p->mitra_id = $mitraId;
         $p->update();
       }
@@ -9027,6 +9030,63 @@ public function confirmasipembayaran(Request $request){
     $m->save();
 
     return response()->json(['value'=>'200','pesan'=>'Akun mitra dibuat','id'=>$m->id,'email'=>$emaile]);
+  }
+
+
+  // ===== Program Mitra =====
+  public function programmitralist(Request $request){
+    $mitraId = (int) $request->input('mitra_id');
+    $q = ProgramMitra::orderBy('nama');
+    if ($mitraId > 0) $q->where('mitra_id', $mitraId);
+    return response()->json($q->get());
+  }
+
+  public function tambahprogrammitra(Request $request){
+    $mitraId = (int) $request->input('mitra_id');
+    $nama = trim((string)$request->input('nama'));
+    if ($mitraId <= 0 || $nama === '') {
+      return response()->json(['value'=>'400','pesan'=>'Mitra dan nama program wajib diisi'], 400);
+    }
+    if (!Mitra::find($mitraId)) {
+      return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+    }
+    $p = new ProgramMitra();
+    $p->mitra_id = $mitraId;
+    $p->nama = $nama;
+    $p->deskripsi = $request->input('deskripsi');
+    $p->logo = $request->input('logo');
+    $p->tagging_template = $request->input('tagging_template');
+    $p->tgl_mulai = $request->input('tgl_mulai') ?: null;
+    $p->tgl_selesai = $request->input('tgl_selesai') ?: null;
+    $p->aktif = (int) $request->input('aktif', 1);
+    $p->save();
+    return response()->json(['value'=>'200','pesan'=>'Program ditambahkan','id'=>$p->id]);
+  }
+
+  public function editprogrammitra(Request $request){
+    $id = (int) $request->input('id');
+    $p = ProgramMitra::find($id);
+    if (!$p) return response()->json(['value'=>'404','pesan'=>'Program tidak ditemukan'], 404);
+    if ($request->filled('nama')) $p->nama = trim((string)$request->input('nama'));
+    if ($request->has('deskripsi')) $p->deskripsi = $request->input('deskripsi');
+    if ($request->has('logo')) $p->logo = $request->input('logo');
+    if ($request->has('tagging_template')) $p->tagging_template = $request->input('tagging_template');
+    if ($request->has('tgl_mulai')) $p->tgl_mulai = $request->input('tgl_mulai') ?: null;
+    if ($request->has('tgl_selesai')) $p->tgl_selesai = $request->input('tgl_selesai') ?: null;
+    if ($request->has('aktif')) $p->aktif = (int)$request->input('aktif');
+    $p->save();
+    return response()->json(['value'=>'200','pesan'=>'Program diperbarui']);
+  }
+
+  public function hapusprogrammitra(Request $request){
+    $id = (int) $request->input('id');
+    $p = ProgramMitra::find($id);
+    if (!$p) return response()->json(['value'=>'404','pesan'=>'Program tidak ditemukan'], 404);
+    if (\App\Models\Dataadopsi::where('program_id', $id)->exists() || DB::table('mitra_hold_request')->where('program_id', $id)->exists()) {
+      return response()->json(['value'=>'409','pesan'=>'Program masih memiliki adopsi/request terkait'], 409);
+    }
+    $p->delete();
+    return response()->json(['value'=>'200','pesan'=>'Program dihapus']);
   }
 
 }
