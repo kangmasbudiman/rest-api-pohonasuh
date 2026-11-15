@@ -9089,4 +9089,82 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Program dihapus']);
   }
 
+
+  // Registrasi mandiri mitra (aktif=0, menunggu approval admin).
+  public function daftarmitra(Request $request){
+    $nama = trim((string) $request->input('nama'));
+    $email = trim((string) $request->input('email'));
+    $hp = trim((string) $request->input('hp'));
+    $alamat = trim((string) $request->input('alamat'));
+    $namaPj = trim((string) $request->input('nama_pj'));
+    $passe = (string) $request->input('passe');
+    if ($nama === '' || $email === '' || $passe === '') {
+      return response()->json(['value'=>'400','pesan'=>'Nama lembaga, email, dan password wajib diisi'], 400);
+    }
+    if (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+      return response()->json(['value'=>'400','pesan'=>'Format email tidak valid'], 400);
+    }
+    if (strlen($passe) < 6) {
+      return response()->json(['value'=>'400','pesan'=>'Password minimal 6 karakter'], 400);
+    }
+    if (Member::where('emaile', $email)->exists()) {
+      return response()->json(['value'=>'409','pesan'=>'Email sudah terdaftar'], 409);
+    }
+    $slug = trim((string) $request->input('slug'));
+    if ($slug === '') $slug = \Illuminate\Support\Str::slug($nama);
+    if (Mitra::where('slug', $slug)->exists()) {
+      $slug = $slug . '-' . time();
+    }
+
+    $roleMitra = Role::where('nama', 'Mitra')->first();
+    if (!$roleMitra) {
+      return response()->json(['value'=>'500','pesan'=>'Role Mitra belum ada'], 500);
+    }
+
+    DB::beginTransaction();
+    try {
+      $mitra = new Mitra();
+      $mitra->nama = $nama;
+      $mitra->slug = $slug;
+      $mitra->logo = $request->input('logo');
+      $mitra->alamat = $alamat !== '' ? $alamat : null;
+      $mitra->nama_pj = $namaPj !== '' ? $namaPj : null;
+      $mitra->email = $email;
+      $mitra->hp = $hp !== '' ? $hp : null;
+      $mitra->tagging_template = null;
+      $mitra->aktif = 0; // menunggu approval admin
+      $mitra->save();
+
+      $m = new Member();
+      $m->tanggal = date('Y-m-d');
+      $m->name = $namaPj !== '' ? $namaPj : $nama;
+      $m->emaile = $email;
+      $m->hp = $hp;
+      $m->passe = md5(sha1($passe));
+      $m->count = 0;
+      $m->admin = 0;
+      $m->confirmed = 'yes';
+      $m->tampil = 'yes';
+      $m->status = 'Member';
+      $m->mati = 0;
+      $m->coba = 0;
+      $m->kode = '';
+      $m->foto = '';
+      $m->tentang = '';
+      $m->job = '';
+      $m->id_token = '';
+      $m->idrole = $roleMitra->id;
+      $m->mitra_id = $mitra->id;
+      $m->save();
+
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      Log::error('daftarmitra gagal: '.$e->getMessage());
+      return response()->json(['value'=>'500','pesan'=>'Gagal registrasi: '.$e->getMessage()], 500);
+    }
+
+    return response()->json(['value'=>'200','pesan'=>'Registrasi mitra berhasil, menunggu aktivasi admin.','id'=>$mitra->id,'email'=>$email]);
+  }
+
 }
