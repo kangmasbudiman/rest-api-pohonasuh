@@ -8832,4 +8832,140 @@ public function confirmasipembayaran(Request $request){
     ]);
   }
 
+
+  // ===== Akun Mitra (self-service) =====
+  public function setmembermitra(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $idMitra = $request->input('mitra_id');
+    $m = Member::find($idMember);
+    if (!$m) return response()->json(['value'=>'404','pesan'=>'Member tidak ditemukan'], 404);
+    if ($idMitra === null || $idMitra === '' || (int)$idMitra === 0) {
+      $m->mitra_id = null;
+    } else {
+      if (!Mitra::find((int)$idMitra)) return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+      $m->mitra_id = (int) $idMitra;
+    }
+    $m->save();
+    return response()->json(['value'=>'200','pesan'=>'Akun mitra diperbarui']);
+  }
+
+  public function mitramyinfo(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'404','pesan'=>'Akun bukan mitra'], 404);
+    }
+    $mitra = Mitra::find($m->mitra_id);
+    if (!$mitra) return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+    return response()->json([
+      'value' => '200',
+      'member' => ['id'=>$m->id,'name'=>$m->name,'emaile'=>$m->emaile],
+      'mitra' => ['id'=>$mitra->id,'nama'=>$mitra->nama,'slug'=>$mitra->slug,'logo'=>$mitra->logo,'tagging_template'=>$mitra->tagging_template],
+    ]);
+  }
+
+  // Request hold pohon oleh mitra (status pending, menunggu approval admin).
+  public function mitrarequesthold(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $mitraId = (int) $m->mitra_id;
+    $kodeList = collect(preg_split('/[\s,]+/', trim((string)$request->input('idpohon'))))
+      ->map(fn($c)=>trim($c))->filter()->unique()->values();
+    if ($kodeList->isEmpty()) {
+      return response()->json(['value'=>'400','pesan'=>'Kode pohon wajib diisi'], 400);
+    }
+    $jumlah = 0; $gagal = [];
+    foreach ($kodeList as $kode) {
+      $p = Pohon::where('idpohon', $kode)->first();
+      if (!$p || !$this->pohonBisaDiadopsi($p)) { $gagal[] = $kode; continue; }
+      DB::table('mitra_hold_request')->insert([
+        'mitra_id' => $mitraId,
+        'idmember' => $idMember,
+        'idpohon' => $kode,
+        'status' => 'pending',
+        'created_at' => now(),
+        'updated_at' => now(),
+      ]);
+      $jumlah++;
+    }
+    if ($jumlah === 0) {
+      return response()->json(['value'=>'409','pesan'=>'Tidak ada pohon yang bisa direquest: '.implode(', ',$gagal)], 409);
+    }
+    return response()->json(['value'=>'200','jumlah'=>$jumlah,'dilewati'=>count($gagal),'pesan'=>$jumlah.' request hold dikirim, menunggu approval admin.']);
+  }
+
+  public function mitramyrequests(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $rows = DB::table('mitra_hold_request')
+      ->where('idmember', $idMember)
+      ->orderByDesc('id')
+      ->get();
+    return response()->json($rows);
+  }
+
+  // Admin: daftar request hold pending (semua mitra).
+  public function mitrapendingholds(){
+    $rows = DB::table('mitra_hold_request as r')
+      ->join('mitra as m', 'm.id', '=', 'r.mitra_id')
+      ->join('member as u', 'u.id', '=', 'r.idmember')
+      ->where('r.status', 'pending')
+      ->select('r.*', 'm.nama as mitra_nama', 'u.name as member_nama')
+      ->orderBy('r.id')
+      ->get();
+    return response()->json($rows);
+  }
+
+  // Admin: approve request hold → pohon jadi milik mitra (status MITRA).
+  public function mitraapprovehold(Request $request){
+    $reqId = (int) $request->input('id');
+    $adminId = (int) $request->input('iduser', 0);
+    $row = DB::table('mitra_hold_request')->where('id', $reqId)->where('status', 'pending')->first();
+    if (!$row) return response()->json(['value'=>'404','pesan'=>'Request tidak ditemukan / sudah diproses'], 404);
+    $p = Pohon::where('idpohon', $row->idpohon)->first();
+    if (!$p || !$this->pohonBisaDiadopsi($p)) {
+      DB::table('mitra_hold_request')->where('id', $reqId)->update(['status'=>'rejected','updated_at'=>now()]);
+      return response()->json(['value'=>'409','pesan'=>'Pohon tidak lagi tersedia'], 409);
+    }
+    $p->adopted = 'reserved';
+    $p->mitra_id = $row->mitra_id;
+    $p->reserved_name = DB::table('mitra')->where('id', $row->mitra_id)->value('nama');
+    $p->reserved_at = now();
+    $p->tgl_pesan = date('Y-m-d');
+    $p->update();
+    DB::table('mitra_hold_request')->where('id', $reqId)->update([
+      'status' => 'approved',
+      'approved_by' => $adminId,
+      'approved_at' => now(),
+      'updated_at' => now(),
+    ]);
+    return response()->json(['value'=>'200','pesan'=>'Request hold disetujui']);
+  }
+
+  // Admin: reject request hold → pohon tetap tersedia.
+  public function mitrarejecthold(Request $request){
+    $reqId = (int) $request->input('id');
+    $row = DB::table('mitra_hold_request')->where('id', $reqId)->where('status', 'pending')->first();
+    if (!$row) return response()->json(['value'=>'404','pesan'=>'Request tidak ditemukan / sudah diproses'], 404);
+    DB::table('mitra_hold_request')->where('id', $reqId)->update(['status'=>'rejected','updated_at'=>now()]);
+    return response()->json(['value'=>'200','pesan'=>'Request hold ditolak']);
+  }
+
+  // Mitra: daftar adopsi milik mitra (scoping by mitra_id).
+  public function mitramyadopsi(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $rows = Dataadopsi::where('mitra_id', $m->mitra_id)->orderByDesc('id')->get();
+    return response()->json($rows);
+  }
+
 }
