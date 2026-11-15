@@ -29,6 +29,7 @@ use App\Models\Sosmed;
 use App\Models\Dataadopsi;
 use App\Models\Detailimage;
 use App\Models\Pohonimage;
+use App\Models\Mitra;
 use App\Models\Testjson;
 use App\Models\Confirmasi;
 use App\Models\Pesan;
@@ -694,7 +695,7 @@ public function getmembers(){
 // ===== Kelola Role & Izin (web admin) =====
 // Izin yang dikenal backend — selaras dengan IZIN di web (src/lib/hak.ts).
 private function izinValid(): array {
-    return ['memo'];
+    return ['memo', 'mitra'];
 }
 
 // Izin member segar dari role di DB — dipakai endpoint memo agar pencabutan
@@ -8609,4 +8610,104 @@ public function confirmasipembayaran(Request $request){
             return response()->json($items);
           }
         }
+
+  // ===== Mitra (partner adopsi) =====
+  public function mitralist(){
+    $data = Mitra::orderBy('nama')->get();
+    return response()->json($data);
+  }
+
+  public function tambahmitra(Request $request){
+    $nama = trim((string) $request->input('nama'));
+    if ($nama === '') {
+      return response()->json(['value'=>'400','pesan'=>'Nama mitra wajib diisi'], 400);
+    }
+    $slug = trim((string) $request->input('slug'));
+    if ($slug === '') { $slug = \Illuminate\Support\Str::slug($nama); }
+    if (Mitra::where('slug', $slug)->exists()) {
+      return response()->json(['value'=>'409','pesan'=>'Slug mitra sudah dipakai'], 409);
+    }
+    $m = new Mitra();
+    $m->nama = $nama;
+    $m->slug = $slug;
+    $m->logo = $request->input('logo');
+    $m->tagging_template = $request->input('tagging_template');
+    $m->cert_template_id = $request->input('cert_template_id') ? (int)$request->input('cert_template_id') : null;
+    $m->aktif = (int) $request->input('aktif', 1);
+    $m->save();
+    return response()->json(['value'=>'200','pesan'=>'Mitra ditambahkan','id'=>$m->id]);
+  }
+
+  public function editmitra(Request $request){
+    $id = (int) $request->input('id');
+    $m = Mitra::find($id);
+    if (!$m) return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+    if ($request->filled('nama')) $m->nama = trim((string)$request->input('nama'));
+    if ($request->filled('slug')) {
+      $slug = trim((string)$request->input('slug'));
+      if (Mitra::where('slug',$slug)->where('id','!=',$id)->exists()) {
+        return response()->json(['value'=>'409','pesan'=>'Slug mitra sudah dipakai'], 409);
+      }
+      $m->slug = $slug;
+    }
+    if ($request->has('logo')) $m->logo = $request->input('logo');
+    if ($request->has('tagging_template')) $m->tagging_template = $request->input('tagging_template');
+    if ($request->has('cert_template_id')) {
+      $m->cert_template_id = $request->input('cert_template_id') ? (int)$request->input('cert_template_id') : null;
+    }
+    if ($request->has('aktif')) $m->aktif = (int)$request->input('aktif');
+    $m->save();
+    return response()->json(['value'=>'200','pesan'=>'Mitra diperbarui']);
+  }
+
+  public function hapusmitra(Request $request){
+    $id = (int) $request->input('id');
+    $m = Mitra::find($id);
+    if (!$m) return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+    if (\App\Models\Dataadopsi::where('mitra_id',$id)->exists() || \App\Models\Pohon::where('mitra_id',$id)->exists()) {
+      return response()->json(['value'=>'409','pesan'=>'Mitra masih memiliki pohon/adopsi terkait — lepas dulu'], 409);
+    }
+    $m->delete();
+    return response()->json(['value'=>'200','pesan'=>'Mitra dihapus']);
+  }
+
+  public function tahanpohonmitra(Request $request){
+    $this->bukaBekuKedaluwarsa();
+    $mitraId = (int) $request->input('mitra_id');
+    $mitra = Mitra::find($mitraId);
+    if (!$mitra) return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+    $kodeList = collect(preg_split('/[\s,]+/', trim((string)$request->input('idpohon'))))
+      ->map(fn($c)=>trim($c))->filter()->unique()->values();
+    if ($kodeList->isEmpty()) return response()->json(['value'=>'400','pesan'=>'Kode pohon wajib diisi'], 400);
+    $jumlah = 0; $gagal = [];
+    foreach ($kodeList as $kode) {
+      $p = Pohon::where('idpohon', $kode)->first();
+      if (!$p || !$this->pohonBisaDiadopsi($p)) { $gagal[] = $kode; continue; }
+      $p->adopted = 'reserved';
+      $p->mitra_id = $mitraId;
+      $p->reserved_name = $mitra->nama;
+      $p->reserved_at = now();
+      $p->tgl_pesan = date('Y-m-d');
+      $p->update();
+      $jumlah++;
+    }
+    if ($jumlah === 0) return response()->json(['value'=>'409','pesan'=>'Tidak ada pohon yang bisa ditahan: '.implode(', ',$gagal)], 409);
+    return response()->json(['value'=>'200','jumlah'=>$jumlah,'dilewati'=>count($gagal),'pesan'=>$jumlah.' pohon ditahan untuk '.$mitra->nama]);
+  }
+
+  public function lepaspohonmitra(Request $request){
+    $kode = trim((string)$request->input('idpohon'));
+    $p = Pohon::where('idpohon', $kode)->first();
+    if (!$p) return response()->json(['value'=>'404','pesan'=>'Pohon tidak ditemukan'],404);
+    if ((int)($p->mitra_id ?? 0) === 0) return response()->json(['value'=>'409','pesan'=>'Pohon bukan milik mitra'],409);
+    if ($p->adopted === 'adopted') return response()->json(['value'=>'409','pesan'=>'Pohon sudah diadopsi — tidak bisa dilepas'],409);
+    $p->adopted = 'available';
+    $p->mitra_id = null;
+    $p->reserved_name = null;
+    $p->reserved_at = null;
+    $p->tgl_pesan = null;
+    $p->update();
+    return response()->json(['value'=>'200','pesan'=>'Pohon dilepas dari mitra']);
+  }
+
 }
