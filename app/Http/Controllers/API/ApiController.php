@@ -2109,6 +2109,15 @@ public function updateduration(Request $request){
         // terbitkan nomor sertifikat untuk order yang baru diverifikasi
         $this->isiCertnum($cariidpengasuh->invoice);
 
+        // Verifikasi pembayaran = adopsi aktif — tandai pohon sebagai adopted
+        // agar tampil “Teradopsi” di publik (sebelumnya tetap “Dipesan” karena
+        // tidak pernah diupdate).
+        $pohonCodes = Dataadopsi::where('invoice', $cariidpengasuh->invoice)
+          ->pluck('idpohon')->unique()->values()->all();
+        if (count($pohonCodes) > 0) {
+          Pohon::whereIn('idpohon', $pohonCodes)->update(['adopted' => 'adopted']);
+        }
+
         // Pohon dari reservasi admin yang dibayar bukan lagi "Dipesan Admin"
         // — statusnya mengikuti alur order biasa (reserved → adopted saat
         // tagging selesai). Order publik tak terpengaruh (flag-nya memang 0).
