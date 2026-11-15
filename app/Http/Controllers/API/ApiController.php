@@ -7162,6 +7162,7 @@ public function confirmasipembayaran(Request $request){
                       'id' => $ceklogin->id,
                       'admin' => $ceklogin->admin,
                       'hak' => $ceklogin->idrole ? (optional(Role::find($ceklogin->idrole))->izin ?: []) : [],
+                      'mitra_id' => $ceklogin->mitra_id ? (int) $ceklogin->mitra_id : null,
                       'foto' => $ceklogin->foto ?: '',
                     ]);
                         }
@@ -7233,6 +7234,7 @@ public function confirmasipembayaran(Request $request){
                       'id' => $ceklogin->id,
                       'admin' => $ceklogin->admin,
                       'hak' => $ceklogin->idrole ? (optional(Role::find($ceklogin->idrole))->izin ?: []) : [],
+                      'mitra_id' => $ceklogin->mitra_id ? (int) $ceklogin->mitra_id : null,
                       'foto' => $ceklogin->foto ?: '',
                     ]);
                         }
