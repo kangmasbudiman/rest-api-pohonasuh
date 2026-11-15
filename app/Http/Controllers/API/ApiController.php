@@ -8869,7 +8869,7 @@ public function confirmasipembayaran(Request $request){
     return response()->json([
       'value' => '200',
       'member' => ['id'=>$m->id,'name'=>$m->name,'emaile'=>$m->emaile],
-      'mitra' => ['id'=>$mitra->id,'nama'=>$mitra->nama,'slug'=>$mitra->slug,'logo'=>$mitra->logo,'tagging_template'=>$mitra->tagging_template],
+      'mitra' => ['id'=>$mitra->id,'nama'=>$mitra->nama,'slug'=>$mitra->slug,'logo'=>$mitra->logo,'tagging_template'=>$mitra->tagging_template,'aktif'=>(int)$mitra->aktif,'alamat'=>$mitra->alamat,'nama_pj'=>$mitra->nama_pj,'email'=>$mitra->email,'hp'=>$mitra->hp],
     ]);
   }
 
@@ -9058,6 +9058,7 @@ public function confirmasipembayaran(Request $request){
     $p->tagging_template = $request->input('tagging_template');
     $p->tgl_mulai = $request->input('tgl_mulai') ?: null;
     $p->tgl_selesai = $request->input('tgl_selesai') ?: null;
+    $p->durasi = $request->input('durasi') ?: null;
     $p->aktif = (int) $request->input('aktif', 1);
     $p->save();
     return response()->json(['value'=>'200','pesan'=>'Program ditambahkan','id'=>$p->id]);
@@ -9073,6 +9074,7 @@ public function confirmasipembayaran(Request $request){
     if ($request->has('tagging_template')) $p->tagging_template = $request->input('tagging_template');
     if ($request->has('tgl_mulai')) $p->tgl_mulai = $request->input('tgl_mulai') ?: null;
     if ($request->has('tgl_selesai')) $p->tgl_selesai = $request->input('tgl_selesai') ?: null;
+    if ($request->has('durasi')) $p->durasi = $request->input('durasi') ?: null;
     if ($request->has('aktif')) $p->aktif = (int)$request->input('aktif');
     $p->save();
     return response()->json(['value'=>'200','pesan'=>'Program diperbarui']);
