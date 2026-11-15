@@ -8968,4 +8968,59 @@ public function confirmasipembayaran(Request $request){
     return response()->json($rows);
   }
 
+
+  // Buat akun login mitra (role Mitra + mitra_id) dari admin — mitra tidak
+  // perlu tahu ID member; admin bagikan email+password ke mitra.
+  public function buatakunmitra(Request $request){
+    $mitraId = (int) $request->input('mitra_id');
+    $mitra = Mitra::find($mitraId);
+    if (!$mitra) return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+
+    $name = trim((string)$request->input('name'));
+    $emaile = trim((string)$request->input('emaile'));
+    $hp = trim((string)$request->input('hp'));
+    $passe = (string)$request->input('passe');
+    if ($name === '' || $emaile === '' || $passe === '') {
+      return response()->json(['value'=>'400','pesan'=>'Nama, email, dan password wajib diisi'], 400);
+    }
+    if (!filter_var($emaile, FILTER_VALIDATE_EMAIL)) {
+      return response()->json(['value'=>'400','pesan'=>'Format email tidak valid'], 400);
+    }
+    if (strlen($passe) < 6) {
+      return response()->json(['value'=>'400','pesan'=>'Password minimal 6 karakter'], 400);
+    }
+    if (Member::where('emaile', $emaile)->exists()) {
+      return response()->json(['value'=>'409','pesan'=>'Email sudah terdaftar'], 409);
+    }
+
+    $roleMitra = Role::where('nama', 'Mitra')->first();
+    if (!$roleMitra) {
+      return response()->json(['value'=>'500','pesan'=>'Role Mitra belum ada — buat di Kelola Role'], 500);
+    }
+
+    $m = new Member();
+    $m->tanggal = date('Y-m-d');
+    $m->name = $name;
+    $m->emaile = $emaile;
+    $m->hp = $hp;
+    $m->passe = md5(sha1($passe));
+    $m->count = 0;
+    $m->admin = 0;
+    $m->confirmed = 'yes';
+    $m->tampil = 'yes';
+    $m->status = 'Member';
+    $m->mati = 0;
+    $m->coba = 0;
+    $m->kode = '';
+    $m->foto = '';
+    $m->tentang = '';
+    $m->job = '';
+    $m->id_token = '';
+    $m->idrole = $roleMitra->id;
+    $m->mitra_id = $mitraId;
+    $m->save();
+
+    return response()->json(['value'=>'200','pesan'=>'Akun mitra dibuat','id'=>$m->id,'email'=>$emaile]);
+  }
+
 }
