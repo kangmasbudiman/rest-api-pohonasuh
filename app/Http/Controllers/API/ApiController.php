@@ -4115,6 +4115,7 @@ public function confirmasipembayaran(Request $request){
         $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
+        $b['mitra_id'] = $k->mitra_id ? (int) $k->mitra_id : null;
         $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
@@ -4199,6 +4200,7 @@ public function confirmasipembayaran(Request $request){
         $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
+        $b['mitra_id'] = $k->mitra_id ? (int) $k->mitra_id : null;
         $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
@@ -4527,6 +4529,7 @@ public function confirmasipembayaran(Request $request){
         $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
+        $b['mitra_id'] = $k->mitra_id ? (int) $k->mitra_id : null;
         $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
@@ -4666,6 +4669,7 @@ public function confirmasipembayaran(Request $request){
         $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
+        $b['mitra_id'] = $k->mitra_id ? (int) $k->mitra_id : null;
         $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
@@ -4769,6 +4773,7 @@ public function confirmasipembayaran(Request $request){
         $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
+        $b['mitra_id'] = $k->mitra_id ? (int) $k->mitra_id : null;
         $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
@@ -4868,6 +4873,7 @@ public function confirmasipembayaran(Request $request){
         $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
+        $b['mitra_id'] = $k->mitra_id ? (int) $k->mitra_id : null;
         $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
@@ -4956,6 +4962,7 @@ public function confirmasipembayaran(Request $request){
         $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
+        $b['mitra_id'] = $k->mitra_id ? (int) $k->mitra_id : null;
         $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
@@ -5051,6 +5058,7 @@ public function confirmasipembayaran(Request $request){
         $b['beku_sampai'] = $k->beku_sampai;
         $b['reserved_admin'] = (int) ($k->reserved_admin ?? 0);
         $b['reserved_name'] = $k->reserved_name;
+        $b['mitra_id'] = $k->mitra_id ? (int) $k->mitra_id : null;
         $b['reserved_at'] = $k->reserved_at;
         $b['score'] = $k->score;
         $b['tgl_pesan'] = $k->tgl_pesan;
@@ -5271,9 +5279,10 @@ public function confirmasipembayaran(Request $request){
       switch ($status) {
         case 'RESERVED_ADMIN': $query->where('reserved_admin', 1); break;
         case 'FROZEN':         $query->where('reserved_admin', 0)->where('beku', 'yes'); break;
-        case 'AVAILABLE':      $query->where('reserved_admin', 0)->where('beku', '!=', 'yes')->where('adopted', 'available'); break;
-        case 'RESERVED':       $query->where('reserved_admin', 0)->where('beku', '!=', 'yes')->where('adopted', 'reserved'); break;
+        case 'AVAILABLE':      $query->where('reserved_admin', 0)->where('beku', '!=', 'yes')->where('adopted', 'available')->whereNull('mitra_id'); break;
+        case 'RESERVED':       $query->where('reserved_admin', 0)->where('beku', '!=', 'yes')->where('adopted', 'reserved')->whereNull('mitra_id'); break;
         case 'ADOPTED':        $query->where('reserved_admin', 0)->where('beku', '!=', 'yes')->where('adopted', 'adopted'); break;
+        case 'MITRA':          $query->whereNotNull('mitra_id'); break;
       }
       if ($sort === 'tinggi') {
         // pohon tanpa data tinggi selalu di urutan bawah (perilaku tabel admin)
@@ -8708,6 +8717,115 @@ public function confirmasipembayaran(Request $request){
     $p->tgl_pesan = null;
     $p->update();
     return response()->json(['value'=>'200','pesan'=>'Pohon dilepas dari mitra']);
+  }
+
+
+  // ===== Input adopsi dari data mitra (Jejakin dst.) =====
+  // Payload: mitra_id + items (JSON string) = [{idpohon, nama, dur, tgl_adopt, memo}].
+  // Pre-paid: langsung confirmation='yes', sertifikat diterbitkan, pohon adopted='adopted'.
+  public function inputadopsimitra(Request $request){
+    $this->bukaBekuKedaluwarsa();
+    $mitraId = (int) $request->input('mitra_id');
+    $mitra = Mitra::find($mitraId);
+    if (!$mitra) {
+      return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+    }
+    $itemsRaw = $request->input('items');
+    $items = is_string($itemsRaw) ? json_decode($itemsRaw, true) : $itemsRaw;
+    if (!is_array($items) || count($items) === 0) {
+      return response()->json(['value'=>'400','pesan'=>'Daftar adopsi kosong'], 400);
+    }
+
+    $adminId = (int) $request->input('iduser', 0);
+    $today = date('Y-m-d');
+    $valid = []; $errors = [];
+    foreach ($items as $it) {
+      $kode = strtoupper(trim((string)($it['idpohon'] ?? '')));
+      $nama = mb_substr(trim((string)($it['nama'] ?? '')), 0, 255);
+      $dur = max(1, min(10, (int)($it['dur'] ?? 1)));
+      $tglAdopt = trim((string)($it['tgl_adopt'] ?? ''));
+      if ($tglAdopt === '') $tglAdopt = $today;
+      $memo = mb_substr(trim((string)($it['memo'] ?? '')), 0, 255);
+      if ($kode === '' || $nama === '') { $errors[] = ['idpohon'=>$kode,'pesan'=>'Kode/nama wajib']; continue; }
+      $p = Pohon::where('idpohon', $kode)->first();
+      if (!$p) { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon tidak ditemukan']; continue; }
+      if ((int)($p->mitra_id ?? 0) !== $mitraId) {
+        $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon bukan milik mitra ini']; continue;
+      }
+      if ($p->adopted === 'adopted') {
+        $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon sudah diadopsi']; continue;
+      }
+      $valid[] = ['pohon'=>$p,'nama'=>$nama,'dur'=>$dur,'tgl_adopt'=>$tglAdopt,'memo'=>$memo];
+    }
+    if (count($valid) === 0) {
+      return response()->json(['value'=>'409','pesan'=>'Tidak ada adopsi valid','errors'=>$errors], 409);
+    }
+
+    $total = 0;
+    foreach ($valid as $v) $total += ((int)($v['pohon']->harga ?? 0)) * $v['dur'];
+
+    DB::beginTransaction();
+    try {
+      $invoice = $this->buatInvoiceAcak();
+      $konf = new Confirmasi();
+      $konf->invoice = $invoice;
+      $konf->tgl_pesan = $today;
+      $konf->idpengasuh = 0;
+      $konf->name = $mitra->nama;
+      $konf->email = '';
+      $konf->methode = 'Mitra';
+      $konf->cur = 'IDR';
+      $konf->price = $total;
+      $konf->tanggal = $today;
+      $konf->jml_pohon = count($valid);
+      $konf->confirmation = 'yes';
+      $konf->confirmationBy = $adminId;
+      $konf->foto = null;
+      $konf->save();
+
+      foreach ($valid as $v) {
+        $p = $v['pohon'];
+        $adopsi = new Dataadopsi();
+        $adopsi->idpohon = $p->idpohon;
+        $adopsi->desa = $p->desa;
+        $adopsi->pengasuh = 0;
+        $adopsi->nama = $v['nama'];
+        $adopsi->price = ((int)($p->harga ?? 0)) * $v['dur'];
+        $adopsi->cur = 'IDR';
+        $adopsi->methode = 'Transfer';
+        $adopsi->tgl_adopt = $v['tgl_adopt'];
+        $adopsi->gfrom = 0;
+        $adopsi->certnum = '';
+        $adopsi->memo = $v['memo'];
+        $adopsi->admin = 1;
+        $adopsi->proses = 1;
+        $adopsi->invoice = $invoice;
+        $adopsi->dur = $v['dur'];
+        $adopsi->mitra_id = $mitraId;
+        $adopsi->tgl_exp = date('Y-m-d', strtotime("+".$v['dur']." year", strtotime($v['tgl_adopt'])));
+        $adopsi->save();
+
+        $p->adopted = 'adopted';
+        $p->mitra_id = $mitraId;
+        $p->update();
+      }
+      $this->isiCertnum($invoice);
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      Log::error('inputadopsimitra gagal: '.$e->getMessage());
+      return response()->json(['value'=>'500','pesan'=>'Gagal input adopsi: '.$e->getMessage()], 500);
+    }
+
+    return response()->json([
+      'value'=>'200',
+      'invoice'=>$invoice,
+      'id'=>$konf->id,
+      'jumlah'=>count($valid),
+      'dilewati'=>count($errors),
+      'errors'=>$errors,
+      'pesan'=>count($valid).' adopsi mitra dicatat, sertifikat diterbitkan.',
+    ]);
   }
 
 }

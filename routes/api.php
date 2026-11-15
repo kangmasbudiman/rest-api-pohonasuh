@@ -175,6 +175,7 @@ Route::post('editmitra', [ApiController::class, 'editmitra']);
 Route::post('hapusmitra', [ApiController::class, 'hapusmitra']);
 Route::post('tahanpohonmitra', [ApiController::class, 'tahanpohonmitra']);
 Route::post('lepaspohonmitra', [ApiController::class, 'lepaspohonmitra']);
+Route::post('inputadopsimitra', [ApiController::class, 'inputadopsimitra']);
 Route::post('ajukanbeku', [ApiController::class, 'ajukanbeku']);
 Route::post('getpengajuanbeku', [ApiController::class, 'getpengajuanbeku']);
 Route::post('setujuibeku', [ApiController::class, 'setujuibeku']);
