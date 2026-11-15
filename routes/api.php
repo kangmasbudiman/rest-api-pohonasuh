@@ -183,6 +183,7 @@ Route::post('hapusprogrammitra', [ApiController::class, 'hapusprogrammitra']);
 Route::post('setmembermitra', [ApiController::class, 'setmembermitra']);
 Route::post('buatakunmitra', [ApiController::class, 'buatakunmitra']);
 Route::post('mitrarequesorder', [ApiController::class, 'mitrarequesorder']);
+Route::post('settaggingprogrammitra', [ApiController::class, 'settaggingprogrammitra']);
 Route::post('mitramypesanan', [ApiController::class, 'mitramypesanan']);
 Route::get('mitrapendingpesanan', [ApiController::class, 'mitrapendingpesanan']);
 Route::post('mitraapprovepesanan', [ApiController::class, 'mitraapprovepesanan']);

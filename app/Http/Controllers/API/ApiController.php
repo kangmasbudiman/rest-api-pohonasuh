@@ -1117,6 +1117,7 @@ public function allcertificate(){
                     'invoice' => $r->invoice,
                     'proses' => $r->proses,
                     'mitra_id' => $r->mitra_id ? (int) $r->mitra_id : null,
+                'program_id' => $r->program_id ? (int) $r->program_id : null,
                 ];
             });
 
@@ -3466,7 +3467,8 @@ public function confirmasipembayaran(Request $request){
             data_adopsi.updated_at,
             data_adopsi.tgl_exp,
             data_adopsi.desa,
-            data_adopsi.mitra_id
+            data_adopsi.mitra_id,
+            data_adopsi.program_id
         ')
         ->distinct() // Hindari duplikasi
         ->orderBy('data_adopsi.tgl_adopt', 'desc')
@@ -3536,6 +3538,7 @@ public function confirmasipembayaran(Request $request){
                 'fotopembayaran' => !empty($fotopembayaran) ? $request->getSchemeAndHttpHost().str_replace('/index.php', '', $request->getBaseUrl()).'/upload/slider/'.$fotopembayaran  : "",
                 'desa' => $k->desa,
                 'mitra_id' => $k->mitra_id ? (int) $k->mitra_id : null,
+                'program_id' => $k->program_id ? (int) $k->program_id : null,
                 // Total dari tabel confirmation (sudah termasuk kode unik) dan
                 // jumlah pohon per invoice — dipakai app utk mengelompokkan order.
                 'total' => $cekconfirm ? $cekconfirm->price : $k->price,
@@ -9309,6 +9312,27 @@ public function confirmasipembayaran(Request $request){
     }
     DB::table('mitra_pesanan')->where('id', $reqId)->update(['status'=>'rejected','updated_at'=>now()]);
     return response()->json(['value'=>'200','pesan'=>'Pesanan ditolak']);
+  }
+
+
+  // Mitra mengatur template tagging untuk program miliknya (own program only).
+  public function settaggingprogrammitra(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $mitraId = (int) $m->mitra_id;
+
+    $programId = (int) $request->input('program_id');
+    $tagging = trim((string)$request->input('tagging_template'));
+    $program = ProgramMitra::where('id', $programId)->where('mitra_id', $mitraId)->first();
+    if (!$program) {
+      return response()->json(['value'=>'404','pesan'=>'Program tidak ditemukan atau bukan milik Anda'], 404);
+    }
+    $program->tagging_template = $tagging !== '' ? $tagging : null;
+    $program->save();
+    return response()->json(['value'=>'200','pesan'=>'Desain tagging disimpan','tagging_template'=>$program->tagging_template]);
   }
 
 }
