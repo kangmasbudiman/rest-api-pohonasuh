@@ -9500,7 +9500,7 @@ public function confirmasipembayaran(Request $request){
     $q = trim((string)$request->input('q', ''));
     $perPage = min(500, max(1, (int)$request->input('per_page', 50)));
     $query = Member::whereNotNull('sumber_info')
-      ->selectRaw("id, name, emaile, hp, address as alamat, sumber_info, tanggal, created_at");
+      ->selectRaw("id, name, emaile, hp, sumber_info, tanggal, created_at");
     if ($q !== '') {
       $query->where(function ($w) use ($q) {
         $w->where('name', 'like', "%{$q}%")
