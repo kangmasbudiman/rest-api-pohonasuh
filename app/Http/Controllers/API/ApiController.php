@@ -31,6 +31,8 @@ use App\Models\Detailimage;
 use App\Models\Pohonimage;
 use App\Models\Mitra;
 use App\Models\ProgramMitra;
+use App\Models\OrganisasiMitra;
+use Illuminate\Support\Str;
 use App\Models\Testjson;
 use App\Models\Confirmasi;
 use App\Models\Pesan;
@@ -9520,6 +9522,161 @@ public function confirmasipembayaran(Request $request){
       'total' => $total,
       'summary' => $summary,
     ]);
+  }
+
+
+  // ===== Organisasi Mitra: pendaftaran multi-langkah (OTP) =====
+  public function daftarmgregistration(Request $request){
+    $nama = mb_substr(trim((string)$request->input('nama')), 0, 150);
+    $alamat = mb_substr(trim((string)$request->input('alamat')), 0, 255);
+    $namaPj = mb_substr(trim((string)$request->input('nama_pj')), 0, 150);
+    $jabatan = mb_substr(trim((string)$request->input('jabatan')), 0, 100);
+    $emailPj = mb_substr(trim((string)$request->input('email_pj')), 0, 150);
+    $hpPj = mb_substr(trim((string)$request->input('hp_pj')), 0, 50);
+    $emailLogin = mb_substr(trim((string)$request->input('email')), 0, 150);
+    $username = strtolower(trim((string)$request->input('username')));
+    $password = (string)$request->input('password');
+    if (!$nama || !$alamat || !$namaPj || !$jabatan || !$emailPj || !$hpPj || !$emailLogin || !$username || !$password) {
+      return response()->json(['value'=>'400','pesan'=>'Lengkapi semua field wajib.'], 400);
+    }
+    if (Member::where('emaile', $emailLogin)->exists()) {
+      return response()->json(['value'=>'409','pesan'=>'Email login sudah terdaftar.'], 409);
+    }
+    $logo = null;
+    if ($request->hasFile('logo')) {
+      $f = $request->file('logo');
+      $ext = strtolower($f->getClientOriginalExtension());
+      if (!in_array($ext, ['jpg','jpeg','png','webp'], true)) {
+        return response()->json(['value'=>'400','pesan'=>'Logo harus jpg/png/webp'], 400);
+      }
+      if ($f->getSize() > 5000000) {
+        return response()->json(['value'=>'400','pesan'=>'Logo maksimal 5 MB'], 400);
+      }
+      $dest = base_path('public/assets');
+      if (!is_dir($dest)) mkdir($dest, 0775, true);
+      $name = 'org_' . time() . '_' . substr(md5($f->getClientOriginalName() . microtime()), 0, 6) . '.' . $ext;
+      $f->move($dest, $name);
+      $logo = $name;
+    }
+    $kategori = [
+      'perusahaan' => 'Perusahaan',
+      'ngo' => 'NGO/Organisasi Nonprofit',
+      'komunitas' => 'Komunitas',
+      'yayasan' => 'Yayasan',
+      'pendidikan' => 'Lembaga Pendidikan',
+      'pemerintah' => 'Instansi Pemerintah',
+      'lainnya' => 'Lainnya',
+    ];
+    $jenis = $kategori[$request->input('jenis')] ?? 'Lainnya';
+    $bidangOptions = ['Lingkungan dan Konservasi','Pendidikan','Sosial dan Pemberdayaan','CSR','Keanekaragaman Hayati','Perubahan Iklim','Lainnya'];
+    $bidang = trim((string)$request->input('bidang_kegiatan'));
+    if (!in_array($bidang, $bidangOptions, true)) $bidang = 'Lainnya';
+
+    DB::beginTransaction();
+    try {
+      $roleMito = Role::where('nama', 'Mitra')->first();
+      $otp = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
+      $m = new Member();
+      $m->tanggal = date('Y-m-d');
+      $m->name = $namaPj;
+      $m->emaile = $emailLogin;
+      $m->hp = $hpPj;
+      $m->passe = md5(sha1($password));
+      $m->count = 0;
+      $m->admin = 0;
+      $m->confirmed = 'yes';
+      $m->tampil = 'yes';
+      $m->status = 'Member';
+      $m->mati = 0;
+      $m->coba = 0;
+      $m->kode = '';
+      $m->foto = '';
+      $m->tentang = '';
+      $m->job = '';
+      $m->id_token = '';
+      $m->idrole = $roleMito?->id;
+      $m->save();
+      $o = new OrganisasiMitra();
+      $o->member_id = $m->id;
+      $o->nama = $nama;
+      $o->slug = Str::slug($nama).'-'.$m->id;
+      $o->jenis = $jenis;
+      $o->logo = $logo;
+      $o->website = $request->input('website');
+      $o->negara = $request->input('negara', 'Indonesia');
+      $o->provinsi = trim((string)$request->input('provinsi'));
+      $o->kota = trim((string)$request->input('kota'));
+      $o->alamat = $alamat;
+      $o->bidang_kegiatan = $bidang;
+      $o->deskripsi = $request->input('deskripsi');
+      $o->nama_pj = $namaPj;
+      $o->jabatan = $jabatan;
+      $o->divisi = $request->input('divisi');
+      $o->email_pj = $emailPj;
+      $o->hp_pj = $hpPj;
+      $o->profil_org = $request->input('profil_org');
+      $o->dokumen_legal = $request->input('dokumen_legal');
+      $o->surat_penunjukan = $request->input('surat_penunjukan');
+      $o->status = 'pending_email';
+      $o->otp_hash = hash('sha256', $otp);
+      $o->otp_sent_at = now();
+      $o->save();
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      Log::error('daftarmgregistration gagal: '.$e->getMessage());
+      return response()->json(['value'=>'500','pesan'=>'Gagal mendaftarkan organisasi'], 500);
+    }
+
+    try {
+      $html = $this->templateEmail('Kode OTP Pendaftaran Mitra', "Halo {$namaPj},\n\nUntuk menyelesaikan pendaftaran Anda di Pohon Asuh, masukkan kode OTP berikut:\n\n{$otp}\n\nKode berlaku 10 menit. Jika Anda tidak merasa mendaftar, abaikan email ini.", 'Panduan', 'https://pohonasuh.io/daftar-mitra');
+      $this->kirimEmailResend($emailPj, 'Kode OTP Pendaftaran Mitra Pohon Asuh', $html ?: 'OTP: '.$otp);
+    } catch (\Throwable $e) {
+      Log::error('kirim OTP gagal: '.$e->getMessage());
+    }
+    $o = OrganisasiMitra::where('member_id', $m->id)->first();
+    return response()->json(['value'=>'201','pesan'=>'Pendaftaran berhasil. Cek email untuk kode OTP.','id'=>$o?->id,'email'=>$emailPj]);
+  }
+
+  public function verifikasiotporg(Request $request){
+    $idorga = (int)$request->input('idorga');
+    $code = trim((string)$request->input('code'));
+    if (!$idorga || $code === '') return response()->json(['value'=>'400','pesan'=>'id dan code wajib'], 400);
+    $o = OrganisasiMitra::find($idorga);
+    if (!$o) return response()->json(['value'=>'404','pesan'=>'Pendaftaran tidak ditemukan'], 404);
+    if ($o->otp_sent_at && $o->otp_sent_at < now()->subMinutes(10)) return response()->json(['value'=>'409','pesan'=>'Kode kedaluwarsa. Silakan kirim ulang.'], 409);
+    if ((int)$o->otp_attempts >= 5) return response()->json(['value'=>'429','pesan'=>'Terlalu banyak percobaan. Silakan kirim ulang.'], 429);
+    if (hash('sha256', $code) !== $o->otp_hash) {
+      $o->otp_attempts = (int)$o->otp_attempts + 1;
+      $o->save();
+      return response()->json(['value'=>'403','pesan'=>'Kode salah.'], 403);
+    }
+    $o->status = 'menunggu_verifikasi';
+    $o->otp_hash = null;
+    $o->otp_attempts = 0;
+    $o->save();
+    return response()->json(['value'=>'200','pesan'=>'OTP dikonfirmasi. Pendaftaran menunggu verifikasi admin.']);
+  }
+
+  public function organisasiSetAdmin(Request $request){
+    $idorga = (int)$request->input('idorga');
+    $aksi = trim((string)$request->input('aksi'));
+    $note = mb_substr(trim((string)$request->input('note')), 0, 1000);
+    $k = env('ADMIN_API_KEY', '');
+    if ($k === '' || !hash_equals($k, (string)$request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    if (!in_array($aksi, ['setujui','perbaikan','tolak'], true)) return response()->json(['value'=>'400','pesan'=>'aksi tidak valid'], 400);
+    $o = OrganisasiMitra::find($idorga);
+    if (!$o) return response()->json(['value'=>'404','pesan'=>'Organisasi tidak ditemukan'], 404);
+    $o->admin_note = $note;
+    $o->verified_by = (int)$request->input('iduser', 0);
+    $o->verified_at = now();
+    if ($aksi === 'setujui') $o->status = 'disetujui';
+    elseif ($aksi === 'perbaikan') $o->status = 'perlu_perbaikan';
+    else $o->status = 'ditolak';
+    $o->save();
+    return response()->json(['value'=>'200','pesan'=>'Status diperbarui.']);
   }
 
 }
