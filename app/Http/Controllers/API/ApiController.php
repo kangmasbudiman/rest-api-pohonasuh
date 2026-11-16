@@ -9846,4 +9846,120 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['data' => $o, 'member' => $member, 'assets' => $assets]);
   }
 
+  // Admin: kirim permintaan upload ulang dokumen pendukung ke PJ (link 1x pakai, berlaku 24 jam)
+  public function requestDokumentok(Request $request){
+    $k = env('ADMIN_API_KEY', '');
+    if ($k === '' || !hash_equals($k, (string)$request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $id = (int)$request->input('idorga');
+    if (!$id) return response()->json(['value'=>'400','pesan'=>'idorga wajib'], 400);
+    $o = OrganisasiMitra::find($id);
+    if (!$o) return response()->json(['value'=>'404','pesan'=>'Pendaftaran tidak ditemukan'], 404);
+    if (empty($o->email_pj)) return response()->json(['value'=>'400','pesan'=>'Email penanggung jawab tidak ada'], 400);
+
+    $token = bin2hex(random_bytes(16));
+    DB::table('email_tokens')->where('jenis', 'dokumen_mitra')->where('ref_id', $o->id)->delete();
+    DB::table('email_tokens')->insert([
+      'email' => $o->email_pj,
+      'jenis' => 'dokumen_mitra',
+      'token_hash' => hash('sha256', $token),
+      'ref_id' => $o->id,
+      'created_at' => now(),
+    ]);
+
+    $url = 'https://pohonasuh.io/upload-dokumen?token=' . $token;
+    $html = $this->templateEmail(
+      'Permintaan Upload Dokumen Pendukung',
+      'Halo '.htmlspecialchars($o->nama_pj, ENT_QUOTES, 'UTF-8').', admin Pohon Asuh meminta Anda mengunggah dokumen pendukung untuk pendaftaran organisasi '.htmlspecialchars($o->nama, ENT_QUOTES, 'UTF-8').'. Klik tombol di bawah — tautan berlaku 24 jam dan hanya bisa digunakan satu kali.',
+      'Buka Halaman Upload Dokumen',
+      $url,
+      'Jangan bagikan tautan ini. Jika bukan Anda yang mendaftar, abaikan email ini.'
+    );
+    $ok = $this->kirimEmailResend($o->email_pj, 'Upload Ulang Dokumen Pendukung — Pohon Asuh', $html);
+    if (!$ok) {
+      Log::warning('minta upload dokumen: email tidak terkirim ke '.$o->email_pj);
+      return response()->json(['value'=>'500','pesan'=>'Gagal mengirim email ke '.$o->email_pj.' — periksa konfigurasi Resend.'], 500);
+    }
+
+    return response()->json(['value'=>'200','pesan'=>'Email permintaan upload dikirim ke '.$o->email_pj]);
+  }
+
+  // Publik: cek token upload dokumen (dipanggil server-side dari halaman upload)
+  public function cekTokenDokumen(Request $request){
+    $token = trim((string)$request->input('token'));
+    if ($token === '') return response()->json(['value'=>'0','pesan'=>'Token wajib diisi.'], 400);
+    $row = DB::table('email_tokens')
+      ->where('jenis', 'dokumen_mitra')
+      ->where('token_hash', hash('sha256', $token))
+      ->where('created_at', '>', now()->subHours(24))
+      ->first();
+    if (!$row) return response()->json(['value'=>'0','pesan'=>'Link tidak valid atau sudah kedaluwarsa.'], 403);
+    $o = OrganisasiMitra::find((int)$row->ref_id);
+    if (!$o) return response()->json(['value'=>'404','pesan'=>'Pendaftaran tidak ditemukan.'], 404);
+    return response()->json([
+      'value' => '1',
+      'data' => [
+        'nama' => $o->nama,
+        'jenis' => $o->jenis,
+        'email_pj' => $o->email_pj,
+        'has_profil' => !empty($o->profil_org),
+        'has_legal' => !empty($o->dokumen_legal),
+        'has_surat' => !empty($o->surat_penunjukan),
+      ],
+    ]);
+  }
+
+  // Publik: simpan dokumen pendukung dari halaman upload (token 1x pakai, 24 jam)
+  public function simpanDokumentok(Request $request){
+    $token = trim((string)$request->input('token'));
+    if ($token === '') return response()->json(['value'=>'400','pesan'=>'Token wajib diisi.'], 400);
+    $row = DB::table('email_tokens')
+      ->where('jenis', 'dokumen_mitra')
+      ->where('token_hash', hash('sha256', $token))
+      ->where('created_at', '>', now()->subHours(24))
+      ->first();
+    if (!$row) return response()->json(['value'=>'403','pesan'=>'Link tidak valid atau sudah kedaluwarsa.'], 403);
+    $o = OrganisasiMitra::find((int)$row->ref_id);
+    if (!$o) return response()->json(['value'=>'404','pesan'=>'Pendaftaran tidak ditemukan.'], 404);
+
+    $docLabels = ['profil_org' => 'Profil organisasi', 'dokumen_legal' => 'Dokumen legalitas', 'surat_penunjukan' => 'Surat penunjukan'];
+
+    // validasi seluruh file dulu (gagal = tidak ada file yang terlanjur dipindah)
+    foreach ($docLabels as $field => $label) {
+      if (!$request->hasFile($field)) continue;
+      $f = $request->file($field);
+      $ext = strtolower($f->getClientOriginalExtension());
+      $exts = $field === 'profil_org' ? ['pdf'] : ['pdf','jpg','jpeg','png','webp'];
+      if (!in_array($ext, $exts, true)) {
+        return response()->json(['value'=>'400','pesan'=>$label.' harus berformat '.strtoupper(implode('/', $exts))], 400);
+      }
+      if ($f->getSize() > 5000000) {
+        return response()->json(['value'=>'400','pesan'=>$label.' maksimal 5 MB'], 400);
+      }
+    }
+
+    $changed = 0;
+    foreach ($docLabels as $field => $label) {
+      if (!$request->hasFile($field)) continue;
+      $f = $request->file($field);
+      $ext = strtolower($f->getClientOriginalExtension());
+      $dest = base_path('public/assets');
+      if (!is_dir($dest)) mkdir($dest, 0775, true);
+      $name = strtolower($field) . '_' . time() . '_' . substr(md5($f->getClientOriginalName() . microtime()), 0, 6) . '.' . $ext;
+      $f->move($dest, $name);
+      $old = $o->{$field};
+      if ($old) @unlink($dest . '/' . $old);
+      $o->{$field} = $name;
+      $changed++;
+    }
+    if ($changed === 0) {
+      return response()->json(['value'=>'400','pesan'=>'Pilih minimal satu file untuk diunggah.'], 400);
+    }
+    $o->save();
+    DB::table('email_tokens')->where('id', $row->id)->delete();
+
+    return response()->json(['value'=>'200','pesan'=>'Dokumen berhasil dikirim. Tim admin akan segera memprosesnya.']);
+  }
+
 }
