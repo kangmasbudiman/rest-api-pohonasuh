@@ -9609,6 +9609,27 @@ public function confirmasipembayaran(Request $request){
       $f->move($dest, $name);
       $logo = $name;
     }
+
+    // Dokumen pendukung: profil_org, dokumen_legal, surat_penunjukan (diupload sebagai file)
+    $docFiles = ['profil_org' => null, 'dokumen_legal' => null, 'surat_penunjukan' => null];
+    $docLabels = ['profil_org' => 'Profil organisasi', 'dokumen_legal' => 'Dokumen legalitas', 'surat_penunjukan' => 'Surat penunjukan'];
+    foreach ($docLabels as $field => $label) {
+      if (!$request->hasFile($field)) continue;
+      $f = $request->file($field);
+      $ext = strtolower($f->getClientOriginalExtension());
+      $exts = $field === 'profil_org' ? ['pdf'] : ['pdf','jpg','jpeg','png','webp'];
+      if (!in_array($ext, $exts, true)) {
+        return response()->json(['value'=>'400','pesan'=>$label.' harus berformat '.strtoupper(implode('/', $exts))], 400);
+      }
+      if ($f->getSize() > 5000000) {
+        return response()->json(['value'=>'400','pesan'=>$label.' maksimal 5 MB'], 400);
+      }
+      $dest = base_path('public/assets');
+      if (!is_dir($dest)) mkdir($dest, 0775, true);
+      $name = strtolower($field) . '_' . time() . '_' . substr(md5($f->getClientOriginalName() . microtime()), 0, 6) . '.' . $ext;
+      $f->move($dest, $name);
+      $docFiles[$field] = $name;
+    }
     $kategori = [
       'perusahaan' => 'Perusahaan',
       'ngo' => 'NGO/Organisasi Nonprofit',
@@ -9664,9 +9685,9 @@ public function confirmasipembayaran(Request $request){
       $o->divisi = $request->input('divisi');
       $o->email_pj = $emailPj;
       $o->hp_pj = $hpPj;
-      $o->profil_org = $request->input('profil_org');
-      $o->dokumen_legal = $request->input('dokumen_legal');
-      $o->surat_penunjukan = $request->input('surat_penunjukan');
+      $o->profil_org = $docFiles['profil_org'];
+      $o->dokumen_legal = $docFiles['dokumen_legal'];
+      $o->surat_penunjukan = $docFiles['surat_penunjukan'];
       $o->status = 'menunggu_verifikasi';
       $o->save();
       DB::commit();
@@ -9788,6 +9809,41 @@ public function confirmasipembayaran(Request $request){
       'data' => $query->forPage($page, $perPage)->get(),
       'total' => $query->count(),
     ]);
+  }
+
+  // Admin: detail satu pendaftaran organisasi mitra (termasuk data akun member)
+  public function organisasiDetailAdmn(Request $request){
+    $k = env('ADMIN_API_KEY', '');
+    if ($k === '' || !hash_equals($k, (string)$request->header('X-Admin-Key',''))) return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+
+    $id = (int)$request->input('id');
+    if (!$id) return response()->json(['value'=>'400','pesan'=>'id wajib'], 400);
+
+    $o = OrganisasiMitra::find($id);
+    if (!$o) return response()->json(['value'=>'404','pesan'=>'Pendaftaran tidak ditemukan'], 404);
+
+    $member = null;
+    if ($o->member_id) {
+      $m = Member::find($o->member_id);
+      if ($m) {
+        $member = [
+          'id' => $m->id,
+          'name' => $m->name,
+          'email' => $m->emaile,
+          'hp' => $m->hp,
+          'tanggal' => $m->tanggal,
+          'tampil' => $m->tampil,
+          'status' => $m->status,
+        ];
+      }
+    }
+
+    $assets = [];
+    foreach (['logo', 'profil_org', 'dokumen_legal', 'surat_penunjukan'] as $f) {
+      if (!empty($o->{$f})) $assets[$f] = $o->{$f};
+    }
+
+    return response()->json(['data' => $o, 'member' => $member, 'assets' => $assets]);
   }
 
 }
