@@ -9629,8 +9629,13 @@ public function confirmasipembayaran(Request $request){
     }
 
     try {
-      $html = $this->templateEmail('Kode OTP Pendaftaran Mitra', "Halo {$namaPj},\n\nUntuk menyelesaikan pendaftaran Anda di Pohon Asuh, masukkan kode OTP berikut:\n\n{$otp}\n\nKode berlaku 10 menit. Jika Anda tidak merasa mendaftar, abaikan email ini.", 'Panduan', 'https://pohonasuh.io/daftar-mitra');
-      $this->kirimEmailResend($emailPj, 'Kode OTP Pendaftaran Mitra Pohon Asuh', $html ?: 'OTP: '.$otp);
+      $html = $this->templateEmailOtp(
+        'Kode OTP Pendaftaran Mitra',
+        'Halo '.htmlspecialchars($namaPj, ENT_QUOTES, 'UTF-8').', kami menerima pendaftaran organisasi Anda di Pohon Asuh. Masukkan kode berikut pada halaman konfirmasi:',
+        $otp,
+        'Kode berlaku 10 menit dan hanya bisa dipakai sekali. Jangan bagikan kode ini kepada siapa pun. Jika bukan Anda yang mendaftar, abaikan email ini.'
+      );
+      $this->kirimEmailResend($emailPj, 'Kode OTP Pendaftaran Mitra Pohon Asuh', $html);
     } catch (\Throwable $e) {
       Log::error('kirim OTP gagal: '.$e->getMessage());
     }
@@ -9677,6 +9682,37 @@ public function confirmasipembayaran(Request $request){
     else $o->status = 'ditolak';
     $o->save();
     return response()->json(['value'=>'200','pesan'=>'Status diperbarui.']);
+  }
+
+
+  // Admin: list pendaftaran organisasi mitra (filter status, q, page)
+  public function organisasiListAdmn(Request $request){
+    $k = env('ADMIN_API_KEY', '');
+    if ($k === '' || !hash_equals($k, (string)$request->header('X-Admin-Key',''))) return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+
+    $q = trim((string)$request->input('q', ''));
+    $status = trim((string)$request->input('status', ''));
+    $page = max(1, (int)$request->input('page', 1));
+    $perPage = min(100, max(1, (int)$request->input('per_page', 20)));
+
+    $query = OrganisasiMitra::query()->orderByDesc('id');
+    if ($status !== '') {
+      $query->where('status', $status);
+    }
+    if ($q !== '') {
+      $query->where(function ($w) use ($q) {
+        $w->where('nama', 'like', "%{$q}%")
+          ->orWhere('nama_pj', 'like', "%{$q}%")
+          ->orWhere('email_pj', 'like', "%{$q}%")
+          ->orWhere('jenis', 'like', "%{$q}%")
+          ->orWhere('kota', 'like', "%{$q}%")
+          ->orWhere('provinsi', 'like', "%{$q}%");
+      });
+    }
+    return response()->json([
+      'data' => $query->forPage($page, $perPage)->get(),
+      'total' => $query->count(),
+    ]);
   }
 
 }
