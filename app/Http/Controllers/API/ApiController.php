@@ -9878,6 +9878,8 @@ public function confirmasipembayaran(Request $request){
     );
     $ok = $this->kirimEmailResend($o->email_pj, 'Upload Ulang Dokumen Pendukung — Pohon Asuh', $html);
     if (!$ok) {
+      // hapus token yang tidak akan pernah terkirim agar tidak menyisakan tautan valid
+      DB::table('email_tokens')->where('jenis', 'dokumen_mitra')->where('ref_id', $o->id)->delete();
       Log::warning('minta upload dokumen: email tidak terkirim ke '.$o->email_pj);
       return response()->json(['value'=>'500','pesan'=>'Gagal mengirim email ke '.$o->email_pj.' — periksa konfigurasi Resend.'], 500);
     }
