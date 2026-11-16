@@ -9752,6 +9752,33 @@ public function confirmasipembayaran(Request $request){
     else $o->status = 'ditolak';
     $o->save();
 
+    // Saat disetujui: pastikan member terhubung ke tabel `mitra` (dipakai portal mitra & login)
+    if ($aksi === 'setujui') {
+      try {
+        $member = Member::find($o->member_id);
+        if ($member && !(int)($member->mitra_id ?? 0)) {
+          $slug = mb_substr((string)$o->slug, 0, 100);
+          $mitra = Mitra::where('slug', $slug)->first();
+          if (!$mitra) {
+            $mitra = new Mitra();
+            $mitra->nama = mb_substr((string)$o->nama, 0, 100);
+            $mitra->slug = $slug;
+            $mitra->logo = $o->logo;
+            $mitra->alamat = mb_substr((string)$o->alamat, 0, 255);
+            $mitra->nama_pj = mb_substr((string)$o->nama_pj, 0, 150);
+            $mitra->email = mb_substr((string)$o->email_pj, 0, 150);
+            $mitra->hp = mb_substr((string)$o->hp_pj, 0, 50);
+            $mitra->aktif = 1;
+            $mitra->save();
+          }
+          $member->mitra_id = $mitra->id;
+          $member->save();
+        }
+      } catch (\Throwable $e) {
+        Log::error('gagal menautkan member ke mitra: '.$e->getMessage());
+      }
+    }
+
     try {
       $labels = [
         'setujui' => 'disetujui',
