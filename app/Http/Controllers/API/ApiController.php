@@ -9709,8 +9709,25 @@ public function confirmasipembayaran(Request $request){
     } catch (\Throwable $e) {
       Log::error('kirim welcome email gagal: '.$e->getMessage());
     }
+
+    // Token survei "Bagaimana Anda mengetahui tentang Pohon Asuh?" (1x pakai, 2 jam)
+    // — dipakai halaman /pendaftaran-berhasil untuk menyimpan member.sumber_info.
+    $sumberToken = null;
+    try {
+      $sumberToken = bin2hex(random_bytes(16));
+      DB::table('email_tokens')->insert([
+        'email' => $emailLogin,
+        'jenis' => 'sumber',
+        'token_hash' => hash('sha256', $sumberToken),
+        'created_at' => now(),
+      ]);
+    } catch (\Throwable $e) {
+      Log::error('gagal buat sumber token: '.$e->getMessage());
+      $sumberToken = null;
+    }
+
     $o = OrganisasiMitra::where('member_id', $m->id)->first();
-    return response()->json(['value'=>'201','pesan'=>'Pendaftaran berhasil. Kami telah mengirimkan detail pendaftaran ke email Anda. Admin akan memverifikasi sebelum akun dapat digunakan.','id'=>$o?->id,'email'=>$emailPj]);
+    return response()->json(['value'=>'201','pesan'=>'Pendaftaran berhasil. Kami telah mengirimkan detail pendaftaran ke email Anda. Admin akan memverifikasi sebelum akun dapat digunakan.','id'=>$o?->id,'email'=>$emailPj,'sumber_token'=>$sumberToken]);
   }
 
   public function verifikasiotporg(Request $request){
