@@ -9525,23 +9525,74 @@ public function confirmasipembayaran(Request $request){
   }
 
 
-  // ===== Organisasi Mitra: pendaftaran multi-langkah (OTP) =====
+  // ===== Organisasi Mitra: pendaftaran multi-langkah =====
+  // Validasi lengkap sesuai RESTful: field, panjang, format, unik.
   public function daftarmgregistration(Request $request){
+    $errors = [];
+
     $nama = mb_substr(trim((string)$request->input('nama')), 0, 150);
-    $alamat = mb_substr(trim((string)$request->input('alamat')), 0, 255);
-    $namaPj = mb_substr(trim((string)$request->input('nama_pj')), 0, 150);
-    $jabatan = mb_substr(trim((string)$request->input('jabatan')), 0, 100);
-    $emailPj = mb_substr(trim((string)$request->input('email_pj')), 0, 150);
-    $hpPj = mb_substr(trim((string)$request->input('hp_pj')), 0, 50);
-    $emailLogin = mb_substr(trim((string)$request->input('email')), 0, 150);
-    $username = strtolower(trim((string)$request->input('username')));
-    $password = (string)$request->input('password');
-    if (!$nama || !$alamat || !$namaPj || !$jabatan || !$emailPj || !$hpPj || !$emailLogin || !$username || !$password) {
-      return response()->json(['value'=>'400','pesan'=>'Lengkapi semua field wajib.'], 400);
-    }
-    if (Member::where('emaile', $emailLogin)->exists()) {
-      return response()->json(['value'=>'409','pesan'=>'Email login sudah terdaftar.'], 409);
-    }
+  $alamat = mb_substr(trim((string)$request->input('alamat')), 0, 255);
+  $namaPj = mb_substr(trim((string)$request->input('nama_pj')), 0, 150);
+  $jabatan = mb_substr(trim((string)$request->input('jabatan')), 0, 100);
+  $emailPj = mb_substr(strtolower(trim((string)$request->input('email_pj'))), 0, 150);
+  $hpPj = mb_substr(trim((string)$request->input('hp_pj')), 0, 50);
+  $emailLogin = mb_substr(strtolower(trim((string)$request->input('email'))), 0, 150);
+  $username = mb_substr(strtolower(trim((string)$request->input('username'))), 0, 30);
+  $password = (string)$request->input('password');
+  $jenis = strtolower(trim((string)$request->input('jenis')));
+  $bidang = trim((string)$request->input('bidang_kegiatan'));
+  $provinsi = mb_substr(trim((string)$request->input('provinsi')), 0, 150);
+  $kota = mb_substr(trim((string)$request->input('kota')), 0, 150);
+  $website = mb_substr(trim((string)$request->input('website')), 0, 255);
+  $deskripsi = trim((string)$request->input('deskripsi'));
+
+  if ($nama === '' || mb_strlen($nama) < 3) $errors[] = 'Nama organisasi minimal 3 karakter.';
+  if ($nama !== '' && mb_strlen($nama) > 150) $errors[] = 'Nama organisasi maksimal 150 karakter.';
+
+  $jenisOptions = ['perusahaan','ngo','komunitas','yayasan','pendidikan','pemerintah','lainnya'];
+  if ($jenis === '' || !in_array($jenis, $jenisOptions, true)) $errors[] = 'Jenis organisasi wajib dipilih.';
+
+  if ($provinsi === '') $errors[] = 'Provinsi wajib diisi.';
+  if ($kota === '') $errors[] = 'Kota/Kabupaten wajib diisi.';
+
+  if ($alamat === '') $errors[] = 'Alamat wajib diisi.';
+  if ($alamat !== '' && mb_strlen($alamat) > 255) $errors[] = 'Alamat maksimal 255 karakter.';
+
+  $bidangOptions = ['Lingkungan dan Konservasi','Pendidikan','Sosial dan Pemberdayaan','CSR','Keanekaragaman Hayati','Perubahan Iklim','Lainnya'];
+  if ($bidang === '' || !in_array($bidang, $bidangOptions, true)) $errors[] = 'Bidang kegiatan wajib dipilih.';
+
+  if ($website !== '' && !filter_var($website, FILTER_VALIDATE_URL)) $errors[] = 'Format website tidak valid.';
+  if ($website !== '' && mb_strlen($website) > 255) $errors[] = 'Website maksimal 255 karakter.';
+
+  if ($deskripsi === '' || mb_strlen($deskripsi) < 10) $errors[] = 'Deskripsi organisasi minimal 10 karakter.';
+
+  if ($namaPj === '' || mb_strlen($namaPj) < 3) $errors[] = 'Nama penanggung jawab wajib diisi.';
+  if ($jabatan === '') $errors[] = 'Jabatan penanggung jawab wajib diisi.';
+
+  if ($emailPj === '' || !filter_var($emailPj, FILTER_VALIDATE_EMAIL)) $errors[] = 'Email penanggung jawab tidak valid.';
+
+  $hpNormalized = preg_replace('/[\s\-()]/', '', $hpPj);
+  if ($hpNormalized === '' || !preg_match('/^\+?[0-9]{9,20}$/', $hpNormalized)) $errors[] = 'Nomor WhatsApp tidak valid (9–20 digit).';
+
+  if ($emailLogin === '' || !filter_var($emailLogin, FILTER_VALIDATE_EMAIL)) $errors[] = 'Email login tidak valid.';
+  if ($username === '' || !preg_match('/^[a-z0-9_.]{3,30}$/', $username)) $errors[] = 'Nama pengguna 3–30 karakter: huruf kecil/angka/titik/underscore.';
+
+  if ($password === '' || strlen($password) < 8) $errors[] = 'Kata sandi minimal 8 karakter.';
+
+  if (count($errors) > 0) {
+    return response()->json(['value'=>'400','pesan'=>implode("\n", $errors)], 400);
+  }
+
+  if (Member::where('emaile', $emailLogin)->exists()) {
+    $errors[] = 'Email login sudah terdaftar.';
+  }
+  // cek email_pj terpakai oleh organisasi lain agar tidak duplikat
+  if (OrganisasiMitra::where('email_pj', $emailPj)->exists()) {
+    $errors[] = 'Email penanggung jawab sudah terpakai oleh organisasi lain.';
+  }
+  if (count($errors) > 0) {
+    return response()->json(['value'=>'409','pesan'=>implode("\n", $errors)], 409);
+  }
     $logo = null;
     if ($request->hasFile('logo')) {
       $f = $request->file('logo');
