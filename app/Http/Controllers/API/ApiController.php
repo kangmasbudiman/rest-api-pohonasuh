@@ -10008,4 +10008,47 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Dokumen berhasil dikirim. Tim admin akan segera memprosesnya.']);
   }
 
+  // Admin: hapus akun member (khusus superadmin — dijaga di frontend)
+  public function hapusmember(Request $request){
+    $k = env('ADMIN_API_KEY', '');
+    if ($k === '' || !hash_equals($k, (string)$request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $id = (int)$request->input('idmember');
+    $iduser = (int)$request->input('iduser', 0);
+    if (!$id) return response()->json(['value'=>'400','pesan'=>'idmember wajib'], 400);
+    if ($id === $iduser && $iduser > 0) return response()->json(['value'=>'400','pesan'=>'Tidak bisa menghapus akun Anda sendiri.'], 400);
+
+    $m = Member::find($id);
+    if (!$m) return response()->json(['value'=>'404','pesan'=>'Member tidak ditemukan'], 404);
+    if ((int)$m->admin >= 1) return response()->json(['value'=>'400','pesan'=>'Akun admin/petugas tidak bisa dihapus — ubah perannya terlebih dahulu.'], 400);
+    if (DB::table('organisasi_mitra')->where('member_id', $id)->exists()) {
+      return response()->json(['value'=>'400','pesan'=>'Akun terdaftar sebagai organisasi mitra — kelola dari menu Pendaftaran Organisasi Mitra.'], 400);
+    }
+    if (DB::table('posisi_petugas')->where('idmember', $id)->exists()) {
+      return response()->json(['value'=>'400','pesan'=>'Akun terikat pada penugasan petugas — hapus dulu penugasannya.'], 400);
+    }
+    if ((int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'400','pesan'=>'Akun tertaut dengan mitra program — kelola dari menu Mitra dulu.'], 400);
+    }
+
+    DB::beginTransaction();
+    try {
+      $email = (string)$m->emaile;
+      DB::table('data_basket')->where('id_member', $id)->delete();   // keranjang (data sementara)
+      DB::table('pesan_notif')->where('idmember', $id)->delete();    // notifikasi
+      DB::table('kelakuan')->where('idmember', $id)->delete();       // log kelakuan
+      DB::table('email_tokens')->where('email', $email)->delete();   // token verifikasi/survei
+      DB::table('password_resets')->where('email', $email)->delete();
+      $m->delete();
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      Log::error('hapusmember gagal: '.$e->getMessage());
+      return response()->json(['value'=>'500','pesan'=>'Gagal menghapus member.'], 500);
+    }
+
+    return response()->json(['value'=>'200','pesan'=>'Akun '.$m->name.' berhasil dihapus.']);
+  }
+
 }

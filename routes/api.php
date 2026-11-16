@@ -175,6 +175,7 @@ Route::post('daftarmitra', [ApiController::class, 'daftarmitra']);
 Route::post('daftarmgregistration', [ApiController::class, 'daftarmgregistration']);
 Route::post('verifikasiotporg', [ApiController::class, 'verifikasiotporg']);
 Route::post('organisasiSetAdmin', [ApiController::class, 'organisasiSetAdmin']);
+Route::post('hapusmember', [ApiController::class, 'hapusmember']);
 Route::get('organisasiListAdmn', [ApiController::class, 'organisasiListAdmn']);
 Route::get('organisasiDetailAdmn', [ApiController::class, 'organisasiDetailAdmn']);
 Route::post('requestdokumentok', [ApiController::class, 'requestDokumentok']);
