@@ -9575,7 +9575,6 @@ public function confirmasipembayaran(Request $request){
     DB::beginTransaction();
     try {
       $roleMito = Role::where('nama', 'Mitra')->first();
-      $otp = str_pad((string)random_int(0, 999999), 6, '0', STR_PAD_LEFT);
       $m = new Member();
       $m->tanggal = date('Y-m-d');
       $m->name = $namaPj;
@@ -9617,9 +9616,7 @@ public function confirmasipembayaran(Request $request){
       $o->profil_org = $request->input('profil_org');
       $o->dokumen_legal = $request->input('dokumen_legal');
       $o->surat_penunjukan = $request->input('surat_penunjukan');
-      $o->status = 'pending_email';
-      $o->otp_hash = hash('sha256', $otp);
-      $o->otp_sent_at = now();
+      $o->status = 'menunggu_verifikasi';
       $o->save();
       DB::commit();
     } catch (\Throwable $e) {
@@ -9629,18 +9626,19 @@ public function confirmasipembayaran(Request $request){
     }
 
     try {
-      $html = $this->templateEmailOtp(
-        'Kode OTP Pendaftaran Mitra',
-        'Halo '.htmlspecialchars($namaPj, ENT_QUOTES, 'UTF-8').', kami menerima pendaftaran organisasi Anda di Pohon Asuh. Masukkan kode berikut pada halaman konfirmasi:',
-        $otp,
-        'Kode berlaku 10 menit dan hanya bisa dipakai sekali. Jangan bagikan kode ini kepada siapa pun. Jika bukan Anda yang mendaftar, abaikan email ini.'
+      $html = $this->templateEmail(
+        'Pendaftaran Mitra Diterima',
+        'Halo '.htmlspecialchars($namaPj, ENT_QUOTES, 'UTF-8').', kami sudah menerima pendaftaran organisasi Anda di Pohon Asuh. Tim admin akan memeriksa dokumen dan informasi yang Anda kirimkan. Kami akan mengirimkan notifikasi ke email berikut setelah pendaftaran Anda disetujui atau bila ada perbaikan yang diperlukan.',
+        'Login Pohon Asuh',
+        'https://pohonasuh.io/masuk',
+        'Apabila bukan Anda yang mendaftar, abaikan email ini. Jangan bagikan informasi akun Anda kepada siapa pun.'
       );
-      $this->kirimEmailResend($emailPj, 'Kode OTP Pendaftaran Mitra Pohon Asuh', $html);
+      $this->kirimEmailResend($emailPj, 'Pendaftaran Mitra Diterima — Pohon Asuh', $html);
     } catch (\Throwable $e) {
-      Log::error('kirim OTP gagal: '.$e->getMessage());
+      Log::error('kirim welcome email gagal: '.$e->getMessage());
     }
     $o = OrganisasiMitra::where('member_id', $m->id)->first();
-    return response()->json(['value'=>'201','pesan'=>'Pendaftaran berhasil. Cek email untuk kode OTP.','id'=>$o?->id,'email'=>$emailPj]);
+    return response()->json(['value'=>'201','pesan'=>'Pendaftaran berhasil. Kami telah mengirimkan detail pendaftaran ke email Anda. Admin akan memverifikasi sebelum akun dapat digunakan.','id'=>$o?->id,'email'=>$emailPj]);
   }
 
   public function verifikasiotporg(Request $request){
@@ -9681,7 +9679,33 @@ public function confirmasipembayaran(Request $request){
     elseif ($aksi === 'perbaikan') $o->status = 'perlu_perbaikan';
     else $o->status = 'ditolak';
     $o->save();
-    return response()->json(['value'=>'200','pesan'=>'Status diperbarui.']);
+
+    try {
+      $labels = [
+        'setujui' => 'disetujui',
+        'perbaikan' => 'perlu diperbaiki',
+        'tolak' => 'ditolak',
+      ];
+      $label = $labels[$aksi] ?? $aksi;
+      $body = $aksi === 'setujui'
+        ? 'Selamat! Pendaftaran organisasi Anda di Pohon Asuh telah disetujui. Anda sekarang dapat masuk dan mengelola program mitra.'
+        : ($aksi === 'perbaikan'
+          ? 'Pendaftaran Anda perlu diperbaiki. Silakan cek catatan admin di akun Anda dan perbarui data yang diperlukan.'
+          : 'Mohon maaf, pendaftaran organisasi Anda belum dapat disetujui saat ini. Silakan hubungi admin jika Anda memiliki pertanyaan.');
+
+      $html = $this->templateEmail(
+        'Update Pendaftaran Mitra — Pohon Asuh',
+        'Halo '.htmlspecialchars($o->nama_pj, ENT_QUOTES, 'UTF-8').', status pendaftaran organisasi '.htmlspecialchars($o->nama, ENT_QUOTES, 'UTF-8').' telah berubah menjadi: <strong>'.$label.'</strong>. '.$body,
+        $aksi === 'setujui' ? 'Masuk Dashboard Mitra' : 'Lihat Status',
+        $aksi === 'setujui' ? 'https://pohonasuh.io/masuk' : 'https://pohonasuh.io/daftar-mitra',
+        'Jika ada pertanyaan, hubungi admin Pohon Asuh.'
+      );
+      $this->kirimEmailResend($o->email_pj, 'Update Pendaftaran Mitra — Pohon Asuh', $html);
+    } catch (\Throwable $e) {
+      Log::error('kirim email update organisasi gagal: '.$e->getMessage());
+    }
+
+    return response()->json(['value'=>'200','pesan'=>'Status diperbarui dan notifikasi dikirim.']);
   }
 
 
