@@ -9283,16 +9283,51 @@ public function confirmasipembayaran(Request $request){
     return response()->json($rows);
   }
 
-  public function mitrapendingpesanan(){
-    $rows = DB::table('mitra_pesanan as p')
+  public function mitrapendingpesanan(Request $request){
+    $q = trim((string)$request->query('q', $request->input('q', '')));
+    $status = strtolower(trim((string)$request->query('status', $request->input('status', 'pending'))));
+    $page = max(1, (int)$request->query('page', $request->input('page', 1)));
+    $perPage = min(50, max(5, (int)$request->query('per_page', $request->input('per_page', 10))));
+
+    $base = DB::table('mitra_pesanan');
+    $summary = [
+      'pending' => (clone $base)->where('status', 'pending')->count(),
+      'approved' => (clone $base)->where('status', 'approved')->count(),
+      'rejected' => (clone $base)->where('status', 'rejected')->count(),
+    ];
+    $summary['all'] = array_sum($summary);
+
+    $query = DB::table('mitra_pesanan as p')
       ->join('mitra as m', 'm.id', '=', 'p.mitra_id')
       ->join('member as u', 'u.id', '=', 'p.idmember')
-      ->leftJoin('program_mitra as pm', 'pm.id', '=', 'p.program_id')
-      ->where('p.status', 'pending')
-      ->select('p.*', 'm.nama as mitra_nama', 'u.name as member_nama', 'pm.nama as program_nama')
-      ->orderBy('p.id')
+      ->leftJoin('program_mitra as pm', 'pm.id', '=', 'p.program_id');
+
+    if (in_array($status, ['pending', 'approved', 'rejected'], true)) {
+      $query->where('p.status', $status);
+    }
+    if ($q !== '') {
+      $query->where(function ($w) use ($q) {
+        $w->where('m.nama', 'like', "%{$q}%")
+          ->orWhere('u.name', 'like', "%{$q}%")
+          ->orWhere('p.desa', 'like', "%{$q}%")
+          ->orWhere('p.catatan', 'like', "%{$q}%")
+          ->orWhere('pm.nama', 'like', "%{$q}%");
+      });
+    }
+
+    $total = (clone $query)->count();
+    $rows = $query->select('p.*', 'm.nama as mitra_nama', 'u.name as member_nama', 'pm.nama as program_nama')
+      ->orderByDesc('p.id')
+      ->forPage($page, $perPage)
       ->get();
-    return response()->json($rows);
+
+    return response()->json([
+      'data' => $rows,
+      'total' => $total,
+      'summary' => $summary,
+      'page' => $page,
+      'per_page' => $perPage,
+    ]);
   }
 
   // Admin approve → alokasi N pohon tersedia (dari desa yang diminta atau semua) ke mitra.
