@@ -10353,7 +10353,7 @@ public function confirmasipembayaran(Request $request){
     foreach ($confirms as $c) {
       $adopsi = DataAdopsi::where('invoice', $c->invoice)->orderBy('id')->get()->map(fn($a) => [
         'id' => $a->id, 'nama' => $a->nama, 'idpohon' => $a->idpohon, 'desa' => $a->desa,
-        'dur' => $a->dur, 'tgl_adopt' => optional($a->tgl_adopt), 'memo' => $a->memo, 'program_id' => $a->program_id,
+        'dur' => $a->dur, 'tgl_adopt' => $a->tgl_adopt ?? null, 'memo' => $a->memo, 'program_id' => $a->program_id,
       ])->all();
       if ($q !== '') {
         $needle = strtolower($q);
