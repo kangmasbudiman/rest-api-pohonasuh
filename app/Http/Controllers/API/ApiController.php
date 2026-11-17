@@ -9311,6 +9311,56 @@ public function confirmasipembayaran(Request $request){
       ->select('p.*', 'pm.nama as program_nama')
       ->orderByDesc('p.id')
       ->get();
+
+    // Perkaya setiap pesanan dengan pohon yang dipesan/dialokasikan (untuk popup mitra)
+    foreach ($rows as $r) {
+      $codes = [];
+      if (!empty($r->pohon_pilihan)) {
+        $decoded = json_decode((string)$r->pohon_pilihan, true);
+        if (is_array($decoded)) {
+          foreach ($decoded as $v) {
+            $c = strtoupper(trim((string)$v));
+            if ($c !== '') $codes[$c] = true;
+          }
+        }
+        $codes = array_keys($codes);
+      } else {
+        $codes = DB::table('mitra_hold_request')
+          ->where('idpesanan', $r->id)
+          ->pluck('idpohon')
+          ->map(fn($v) => strtoupper((string)$v))
+          ->filter()
+          ->unique()
+          ->values()
+          ->all();
+      }
+
+      $trees = [];
+      if (count($codes) > 0) {
+        $trows = Pohon::whereIn('idpohon', $codes)
+          ->select('idpohon', 'localname', 'species', 'desa', 'diameter', 'tinggi', 'foto_pohon')
+          ->get();
+        $map = [];
+        foreach ($trows as $t) {
+          $map[strtoupper((string)$t->idpohon)] = $t;
+        }
+        foreach ($codes as $c) {
+          $t = $map[$c] ?? null;
+          $trees[] = [
+            'code' => $c,
+            'localName' => $t ? (string)$t->localname : $c,
+            'species' => $t && $t->species ? (string)$t->species : null,
+            'desa' => $t ? (string)$t->desa : null,
+            'diameterCm' => $t && $t->diameter !== null ? (float)$t->diameter : null,
+            'heightM' => $t && $t->tinggi !== null ? (float)$t->tinggi : null,
+            'photoUrl' => $t && $t->foto_pohon ? (string)$t->foto_pohon : null,
+          ];
+        }
+      }
+      $r->trees = $trees;
+      $r->tree_count = count($trees);
+    }
+
     return response()->json($rows);
   }
 
