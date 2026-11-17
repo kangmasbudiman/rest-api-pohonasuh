@@ -9372,6 +9372,7 @@ public function confirmasipembayaran(Request $request){
         DB::table('mitra_hold_request')->insert([
           'mitra_id' => $req->mitra_id,
           'idmember' => $req->idmember,
+          'idpesanan' => $req->id,
           'idpohon' => $p->idpohon,
           'program_id' => $req->program_id,
           'status' => 'approved',
@@ -10118,6 +10119,80 @@ public function confirmasipembayaran(Request $request){
     }
 
     return response()->json(['value'=>'200','pesan'=>'Akun '.$m->name.' berhasil dihapus.']);
+  }
+
+  // Mitra: batalkan pesanan sendiri (pending maupun approved) — pohon reserved kembali pool.
+  public function mitrabatalkanpesanan(Request $request){
+    $idmember = (int) $request->input('idmember');
+    $id = (int) $request->input('id');
+    $alasan = mb_substr(trim((string)$request->input('alasan')), 0, 255);
+    if (!$idmember || !$id) return response()->json(['value'=>'400','pesan'=>'idmember dan id wajib'], 400);
+    if ($alasan === '') return response()->json(['value'=>'400','pesan'=>'Alasan pembatalan wajib diisi'], 400);
+
+    $req = DB::table('mitra_pesanan')->where('id', $id)->where('idmember', $idmember)->first();
+    if (!$req) return response()->json(['value'=>'404','pesan'=>'Pesanan tidak ditemukan'], 404);
+    if (!in_array($req->status, ['pending', 'approved'], true)) {
+      return response()->json(['value'=>'400','pesan'=>'Pesanan sudah diproses atau dibatalkan sebelumnya'], 400);
+    }
+
+    DB::beginTransaction();
+    try {
+      $released = 0;
+      if ($req->status === 'approved' && (int) $req->jumlah > 0) {
+        // 1) Hold baru (ada idpesanan) — cocok persis.
+        $holds = DB::table('mitra_hold_request')
+          ->where('idpesanan', $req->id)
+          ->where('status', 'approved')
+          ->get();
+
+        // 2) Fallback untuk hold lama tanpa idpesanan (paket member+program terurut).
+        if ($holds->count() < (int) $req->jumlah) {
+          $sisa = (int) $req->jumlah - $holds->count();
+          $oldQuery = DB::table('mitra_hold_request')
+            ->where('mitra_id', $req->mitra_id)
+            ->where('idmember', $idmember)
+            ->whereNull('idpesanan')
+            ->where('status', 'approved');
+          if (!empty($req->program_id)) $oldQuery->where('program_id', $req->program_id);
+          else $oldQuery->whereNull('program_id');
+          $oldHolds = $oldQuery->orderBy('id')->limit($sisa)->get();
+          $holds = $holds->concat($oldHolds);
+        }
+
+        foreach ($holds as $h) {
+          $updated = DB::table('data_pohon')
+            ->where('idpohon', $h->idpohon)
+            ->where('mitra_id', $req->mitra_id)
+            ->where('adopted', 'reserved')
+            ->update([
+              'adopted' => 'available',
+              'mitra_id' => null,
+              'reserved_name' => null,
+              'reserved_at' => null,
+              'reserved_admin' => 0,
+              'tgl_pesan' => null,
+            ]);
+          $released += $updated;
+        }
+
+        DB::table('mitra_hold_request')
+          ->whereIn('id', $holds->pluck('id'))
+          ->update(['status' => 'cancelled', 'updated_at' => now()]);
+      }
+
+      DB::table('mitra_pesanan')->where('id', $id)->update([
+        'status' => 'cancelled',
+        'catatan' => ($req->catatan ? $req->catatan . "\n" : '') . '[Pembatalan] ' . $alasan,
+        'updated_at' => now(),
+      ]);
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      Log::error('mitrabatalkanpesanan gagal: '.$e->getMessage());
+      return response()->json(['value'=>'500','pesan'=>'Gagal membatalkan pesanan'], 500);
+    }
+
+    return response()->json(['value'=>'200','pesan'=>'Pesanan dibatalkan. '.$released.' pohon dikembalikan ke pool.']);
   }
 
 }
