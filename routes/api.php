@@ -178,6 +178,8 @@ Route::post('organisasiSetAdmin', [ApiController::class, 'organisasiSetAdmin']);
 Route::post('hapusmember', [ApiController::class, 'hapusmember']);
 Route::get('organisasiListAdmn', [ApiController::class, 'organisasiListAdmn']);
 Route::get('organisasiDetailAdmn', [ApiController::class, 'organisasiDetailAdmn']);
+Route::get('organisasitampil', [ApiController::class, 'organisasitampil']);
+Route::get('organisasibyslug', [ApiController::class, 'organisasibyslug']);
 Route::post('requestdokumentok', [ApiController::class, 'requestDokumentok']);
 Route::post('cektokendokumen', [ApiController::class, 'cekTokenDokumen']);
 Route::post('simpandokumentok', [ApiController::class, 'simpanDokumentok']);

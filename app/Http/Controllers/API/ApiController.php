@@ -10008,6 +10008,40 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Dokumen berhasil dikirim. Tim admin akan segera memprosesnya.']);
   }
 
+  // Publik: daftar lembaga mitra yang sudah disetujui (untuk landing page)
+  public function organisasitampil(Request $request){
+    $rows = OrganisasiMitra::where('status', 'disetujui')
+      ->select('id', 'nama', 'slug', 'logo', 'jenis', 'bidang_kegiatan', 'provinsi', 'kota', 'website', 'deskripsi')
+      ->orderByDesc('id')
+      ->limit(36)
+      ->get();
+    return response()->json(['data' => $rows]);
+  }
+
+  // Publik: detail lembaga mitra disetujui berdasarkan slug (profil publik)
+  public function organisasibyslug(Request $request){
+    $slug = trim((string)$request->query('slug', $request->input('slug')));
+    if ($slug === '') return response()->json(['value'=>'400','pesan'=>'slug wajib'], 400);
+    $o = OrganisasiMitra::where('slug', $slug)->where('status', 'disetujui')->first();
+    if (!$o) return response()->json(['value'=>'404','pesan'=>'Lembaga mitra tidak ditemukan'], 404);
+    return response()->json([
+      'value' => '200',
+      'data' => [
+        'id' => $o->id,
+        'nama' => $o->nama,
+        'slug' => $o->slug,
+        'logo' => $o->logo,
+        'website' => $o->website,
+        'jenis' => $o->jenis,
+        'bidang_kegiatan' => $o->bidang_kegiatan,
+        'provinsi' => $o->provinsi,
+        'kota' => $o->kota,
+        'deskripsi' => $o->deskripsi,
+        'joined' => optional($o->verified_at ?? $o->created_at)->toDateString(),
+      ],
+    ]);
+  }
+
   // Admin: hapus akun member (khusus superadmin — dijaga di frontend)
   public function hapusmember(Request $request){
     $k = env('ADMIN_API_KEY', '');
