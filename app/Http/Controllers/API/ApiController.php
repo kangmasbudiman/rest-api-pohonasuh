@@ -9238,13 +9238,43 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
     }
     $mitraId = (int) $m->mitra_id;
-    $jumlah = (int) $request->input('jumlah');
-    if ($jumlah < 1 || $jumlah > 500) {
-      return response()->json(['value'=>'400','pesan'=>'Jumlah pohon harus 1-500'], 400);
-    }
     $desa = trim((string)$request->input('desa'));
     $programId = $request->input('program_id') ? (int)$request->input('program_id') : null;
     $catatan = trim((string)$request->input('catatan'));
+    $pilihanRaw = trim((string)$request->input('pohon_pilihan'));
+
+    // Jika mitra memilih pohon tertentu: validasi semua pohon tersedia & pakai jumlahnya otomatis.
+    $pilihan = [];
+    if ($pilihanRaw !== '') {
+      $codes = array_values(array_unique(array_filter(array_map(function ($c) {
+        return strtoupper(trim($c));
+      }, explode(',', $pilihanRaw)), function ($c) { return $c !== ''; })));
+      if (count($codes) > 0 && count($codes) <= 500) {
+        $available = Pohon::whereIn('idpohon', $codes)
+          ->where('adopted', 'available')
+          ->where('beku', '!=', 'yes')
+          ->where('reserved_admin', 0)
+          ->whereNull('mitra_id')
+          ->pluck('idpohon')
+          ->map(function ($v) { return strtoupper((string)$v); })
+          ->all();
+        foreach ($codes as $c) {
+          if (in_array($c, $available, true)) $pilihan[] = $c;
+        }
+        if (count($pilihan) === 0) {
+          return response()->json(['value'=>'409','pesan'=>'Pohon yang dipilih sudah tidak tersedia. Muat ulang daftar dan pilih lagi.'], 409);
+        }
+      }
+    }
+
+    if (count($pilihan) > 0) {
+      $jumlah = count($pilihan);
+    } else {
+      $jumlah = (int) $request->input('jumlah');
+      if ($jumlah < 1 || $jumlah > 500) {
+        return response()->json(['value'=>'400','pesan'=>'Jumlah pohon harus 1-500'], 400);
+      }
+    }
 
     DB::beginTransaction();
     try {
@@ -9253,6 +9283,7 @@ public function confirmasipembayaran(Request $request){
         'idmember' => $idMember,
         'program_id' => $programId,
         'desa' => $desa !== '' ? $desa : null,
+        'pohon_pilihan' => count($pilihan) > 0 ? json_encode($pilihan) : null,
         'jumlah' => $jumlah,
         'catatan' => $catatan !== '' ? $catatan : null,
         'status' => 'pending',
@@ -9343,20 +9374,44 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
     }
 
-    // cari pohon tersedia di desa diminta (atau semua desa)
-    $query = Pohon::where('adopted', 'available')
-      ->where('beku', '!=', 'yes')
-      ->whereNull('mitra_id')
-      ->where('reserved_admin', 0);
-    if ($req->desa) {
-      $query->where('desa', $req->desa);
-    }
-    $rows = $query->orderBy('id')->limit((int)$req->jumlah)->get();
-    if ($rows->count() < (int)$req->jumlah) {
-      return response()->json(
-        ['value'=>'409','pesan'=>'Pohon tersedia tidak cukup (diminta '.$req->jumlah.', tersedia '.$rows->count().')'],
-        409,
-      );
+    // Pohon pilihan dari mitra → alokasikan persis pohon tersebut (cek ulang saat approve).
+    $pilihan = !empty($req->pohon_pilihan) ? json_decode((string)$req->pohon_pilihan, true) : [];
+    if (!is_array($pilihan)) $pilihan = [];
+
+    if (count($pilihan) > 0) {
+      $codes = array_values(array_unique(array_map(function ($v) {
+        return strtoupper(trim((string)$v));
+      }, $pilihan)));
+      $rows = Pohon::whereIn('idpohon', $codes)
+        ->where('adopted', 'available')
+        ->where('beku', '!=', 'yes')
+        ->whereNull('mitra_id')
+        ->where('reserved_admin', 0)
+        ->orderBy('id')
+        ->get();
+      $dilewati = count($codes) - $rows->count();
+      if ($rows->isEmpty()) {
+        return response()->json(['value'=>'409','pesan'=>'Pohon yang dipilih sudah tidak tersedia (mungkin diambil mitra lain / publik).'], 409);
+      }
+      $allocatedLabel = 'pohon pilihan disetujui';
+    } else {
+      // cari pohon tersedia di desa diminta (atau semua desa)
+      $query = Pohon::where('adopted', 'available')
+        ->where('beku', '!=', 'yes')
+        ->whereNull('mitra_id')
+        ->where('reserved_admin', 0);
+      if ($req->desa) {
+        $query->where('desa', $req->desa);
+      }
+      $rows = $query->orderBy('id')->limit((int)$req->jumlah)->get();
+      if ($rows->count() < (int)$req->jumlah) {
+        return response()->json(
+          ['value'=>'409','pesan'=>'Pohon tersedia tidak cukup (diminta '.$req->jumlah.', tersedia '.$rows->count().')'],
+          409,
+        );
+      }
+      $dilewati = 0;
+      $allocatedLabel = 'pohon dialokasikan';
     }
 
     DB::beginTransaction();
@@ -9391,7 +9446,8 @@ public function confirmasipembayaran(Request $request){
       try {
         $pesan = new Pesan();
         $pesan->idmember = $req->idmember;
-        $pesan->pesan = "Pesanan Anda disetujui: {$rows->count()} pohon dialokasikan.";
+        $skippedNote = $dilewati > 0 ? " ({$dilewati} pohon pilihan sudah tidak tersedia)" : '';
+        $pesan->pesan = "Pesanan Anda disetujui: {$rows->count()} pohon dialokasikan{$skippedNote}.";
         $pesan->pesan_en = "Your order has been approved: {$rows->count()} trees allocated.";
         $pesan->link = '/mitra/pesanan';
         $pesan->status = 'noread';
@@ -9401,7 +9457,7 @@ public function confirmasipembayaran(Request $request){
         Log::error('notifikasi mitraapprovepesanan gagal: '.$e->getMessage());
       }
       DB::commit();
-      return response()->json(['value'=>'200','pesan'=>$rows->count().' pohon dialokasikan untuk '.$mitra->nama,'jumlah'=>$rows->count()]);
+      return response()->json(['value'=>'200','pesan'=>$rows->count().' pohon dialokasikan untuk '.$mitra->nama.($dilewati > 0 ? " ({$dilewati} pilihan jadi tidak tersedia)" : ''),'jumlah'=>$rows->count(),'dilewati'=>$dilewati]);
     } catch (\Throwable $e) {
       DB::rollBack();
       return response()->json(['value'=>'500','pesan'=>'Gagal alokasi: '.$e->getMessage()], 500);
@@ -10193,6 +10249,145 @@ public function confirmasipembayaran(Request $request){
     }
 
     return response()->json(['value'=>'200','pesan'=>'Pesanan dibatalkan. '.$released.' pohon dikembalikan ke pool.']);
+  }
+
+  // Mitra: input data pengadopsi SENDIRI (tanpa admin-key). Mitra selalu diambil dari member — tidak bisa pilih mitra lain.
+  public function inputadopsimitraself(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $mitra = Mitra::find((int) $m->mitra_id);
+    if (!$mitra) {
+      return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+    }
+    $mitraId = $mitra->id;
+    $this->bukaBekuKedaluwarsa();
+    $programId = $request->input('program_id') ? (int)$request->input('program_id') : null;
+    $itemsRaw = $request->input('items');
+    $items = is_string($itemsRaw) ? json_decode($itemsRaw, true) : $itemsRaw;
+    if (!is_array($items) || count($items) === 0) {
+      return response()->json(['value'=>'400','pesan'=>'Daftar adopsi kosong'], 400);
+    }
+    $today = date('Y-m-d');
+    $valid = []; $errors = [];
+    foreach ($items as $it) {
+      $kode = strtoupper(trim((string)($it['idpohon'] ?? '')));
+      $nama = mb_substr(trim((string)($it['nama'] ?? '')), 0, 255);
+      $dur = max(1, min(10, (int)($it['dur'] ?? 1)));
+      $tglAdopt = trim((string)($it['tgl_adopt'] ?? ''));
+      if ($tglAdopt === '') $tglAdopt = $today;
+      $memo = mb_substr(trim((string)($it['memo'] ?? '')), 0, 255);
+      if ($kode === '' || $nama === '') { $errors[] = ['idpohon'=>$kode,'pesan'=>'Kode/nama wajib']; continue; }
+      $p = Pohon::where('idpohon', $kode)->first();
+      if (!$p) { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon tidak ditemukan']; continue; }
+      if ((int)($p->mitra_id ?? 0) !== $mitraId) { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon bukan milik Anda']; continue; }
+      if ($p->adopted === 'adopted') { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon sudah diadopsi']; continue; }
+      $valid[] = ['pohon'=>$p,'nama'=>$nama,'dur'=>$dur,'tgl_adopt'=>$tglAdopt,'memo'=>$memo];
+    }
+    if (count($valid) === 0) {
+      return response()->json(['value'=>'409','pesan'=>'Tidak ada adopsi valid','errors'=>$errors], 409);
+    }
+
+    DB::beginTransaction();
+    try {
+      $invoice = $this->buatInvoiceAcak();
+      $konf = new Confirmasi();
+      $konf->invoice = $invoice;
+      $konf->tgl_pesan = $today;
+      $konf->idpengasuh = 0;
+      $konf->name = $mitra->nama;
+      $konf->email = (string)($m->emaile ?? '');
+      $konf->methode = 'Mitra';
+      $konf->cur = 'IDR';
+      $konf->price = 0; // pre-paid — mitra menagih di luar sistem
+      $konf->tanggal = $today;
+      $konf->jml_pohon = count($valid);
+      $konf->confirmation = 'no'; // menunggu verifikasi admin — sertifikat terbit setelah diverifikasi
+      $konf->confirmationBy = null;
+      $konf->foto = null;
+      $konf->save();
+      foreach ($valid as $v) {
+        $p = $v['pohon'];
+        $adopsi = new Dataadopsi();
+        $adopsi->idpohon = $p->idpohon;
+        $adopsi->desa = $p->desa;
+        $adopsi->pengasuh = 0;
+        $adopsi->nama = $v['nama'];
+        $adopsi->price = 0;
+        $adopsi->cur = 'IDR';
+        $adopsi->methode = 'Transfer';
+        $adopsi->tgl_adopt = $v['tgl_adopt'];
+        $adopsi->gfrom = 0;
+        $adopsi->certnum = ''; // BELUM terbutang — terbit setelah verifikasi admin
+        $adopsi->memo = $v['memo'];
+        $adopsi->admin = 1;
+        $adopsi->proses = 1;
+        $adopsi->invoice = $invoice;
+        $adopsi->dur = $v['dur'];
+        $adopsi->mitra_id = $mitraId;
+        $adopsi->program_id = $programId;
+        $adopsi->tgl_exp = date('Y-m-d', strtotime('+'.$v['dur'].' year', strtotime($v['tgl_adopt'])));
+        $adopsi->save();
+      }
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      Log::error('inputadopsimitraself gagal: '.$e->getMessage());
+      return response()->json(['value'=>'500','pesan'=>'Gagal mencatat adopsi: '.$e->getMessage()], 500);
+    }
+    return response()->json(['value'=>'200','invoice'=>null,'jumlah'=>count($valid),'dilewati'=>count($errors),'errors'=>$errors,'pesan'=>count($valid).' pengadopsi dicatat — menunggu verifikasi admin untuk terbit sertifikat.']);
+  }
+
+  // Admin: daftar adopsi mitra menunggu verifikasi (grouped per invoice)
+  public function adosimitrapending(Request $request){
+    $k = env('ADMIN_API_KEY', '');
+    if ($k === '' || !hash_equals($k, (string)$request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $q = trim((string)$request->input('q', ''));
+    $data = [];
+    $totalPohon = 0;
+    $confirms = Confirmasi::where('methode', 'Mitra')->where('confirmation', 'no')->orderByDesc('id')->limit(200)->get();
+    foreach ($confirms as $c) {
+      $adopsi = DataAdopsi::where('invoice', $c->invoice)->orderBy('id')->get()->map(fn($a) => [
+        'id' => $a->id, 'nama' => $a->nama, 'idpohon' => $a->idpohon, 'desa' => $a->desa,
+        'dur' => $a->dur, 'tgl_adopt' => optional($a->tgl_adopt), 'memo' => $a->memo, 'program_id' => $a->program_id,
+      ])->all();
+      if ($q !== '') {
+        $needle = strtolower($q);
+        $hay = strtolower(($c->name ?? '') . ' ' . $c->invoice . ' ' . implode(' ', array_column($adopsi, 'nama')));
+        if (mb_stripos($hay, $needle) === false) continue;
+      }
+      $totalPohon += count($adopsi);
+      $data[] = [
+        'confirmasi_id' => $c->id,
+        'invoice' => $c->invoice,
+        'mitra' => $c->name,
+        'tgl' => optional($c->created_at)->toDateString(),
+        'jumlah' => count($adopsi),
+        'adopsi' => $adopsi,
+      ];
+    }
+    return response()->json(['data' => $data, 'total_invoice' => count($data), 'total_pohon' => $totalPohon]);
+  }
+
+  // Admin: verifikasi 1 invoice adopsi mitra → sertifikat terbit
+  public function verifikasiadopsimitra(Request $request){
+    $k = env('ADMIN_API_KEY', '');
+    if ($k === '' || !hash_equals($k, (string)$request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $invoice = trim((string)$request->input('invoice'));
+    if ($invoice === '') return response()->json(['value'=>'400','pesan'=>'invoice wajib'], 400);
+    $c = Confirmasi::where('invoice', $invoice)->where('methode', 'Mitra')->where('confirmation', 'no')->first();
+    if (!$c) return response()->json(['value'=>'404','pesan'=>'Order tidak ditemukan / sudah diverifikasi'], 404);
+    $c->confirmation = 'yes';
+    $c->confirmationBy = (int)$request->input('iduser', 0);
+    $c->save();
+    $this->isiCertnum($invoice); // terbitkan nomor sertifikat + notif mitra
+    return response()->json(['value'=>'200','pesan'=>'Adopsi mitra diverifikasi — sertifikat terbit.']);
   }
 
 }
