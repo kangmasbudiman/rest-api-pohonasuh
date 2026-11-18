@@ -215,6 +215,7 @@ Route::post('inputadopsimitra', [ApiController::class, 'inputadopsimitra']);
 Route::post('inputadopsimitraself', [ApiController::class, 'inputadopsimitraself']);
 Route::get('adosimitrapending', [ApiController::class, 'adosimitrapending']);
 Route::post('verifikasiadopsimitra', [ApiController::class, 'verifikasiadopsimitra']);
+Route::get('mitradetailpesanan', [ApiController::class, 'mitradetailpesanan']);
 Route::post('ajukanbeku', [ApiController::class, 'ajukanbeku']);
 Route::post('getpengajuanbeku', [ApiController::class, 'getpengajuanbeku']);
 Route::post('setujuibeku', [ApiController::class, 'setujuibeku']);

@@ -145,8 +145,50 @@ class ApiController extends Controller
 
     // Push FCM (HTTP v1 via Kreait) ke member berdasarkan id_token di tabel
     // member. Diam-diam gagal: notifikasi in-app (pesan_notif) tetap tersimpan.
-    private function kirimPush($idmember, $title, $body){
-        try {
+    private function loadPesananTrees($r): array {
+        $codes = [];
+        if (!empty($r->pohon_pilihan)) {
+            $decoded = json_decode((string)$r->pohon_pilihan, true);
+            if (is_array($decoded)) {
+                foreach ($decoded as $v) {
+                    $c = strtoupper(trim((string)$v));
+                    if ($c !== '') $codes[$c] = true;
+                }
+            }
+            $codes = array_keys($codes);
+        } else {
+            $codes = DB::table('mitra_hold_request')
+                ->where('idpesanan', $r->id)
+                ->pluck('idpohon')
+                ->map(fn($v) => strtoupper((string)$v))
+                ->filter()
+                ->unique()
+                ->values()
+                ->all();
+        }
+        if (count($codes) === 0) return [];
+        $trows = Pohon::whereIn('idpohon', $codes)
+            ->select('idpohon', 'localname', 'species', 'desa', 'diameter', 'tinggi', 'foto_pohon')
+            ->get();
+        $map = [];
+        foreach ($trows as $t) $map[strtoupper((string)$t->idpohon)] = $t;
+        $trees = [];
+        foreach ($codes as $c) {
+            $t = $map[$c] ?? null;
+            $trees[] = [
+                'code' => $c,
+                'localName' => $t ? (string)$t->localname : $c,
+                'species' => $t && $t->species ? (string)$t->species : null,
+                'desa' => $t ? (string)$t->desa : null,
+                'diameterCm' => $t && $t->diameter !== null ? (float)$t->diameter : null,
+                'heightM' => $t && $t->tinggi !== null ? (float)$t->tinggi : null,
+                'photoUrl' => $t && $t->foto_pohon ? (string)$t->foto_pohon : null,
+            ];
+        }
+        return $trees;
+    }
+
+    private function kirimPush($idmember, $title, $body){        try {
             $m = Member::find($idmember);
             if (!$m || !$m->id_token) { return; }
             $message = CloudMessage::withTarget('token', $m->id_token)
@@ -9314,51 +9356,8 @@ public function confirmasipembayaran(Request $request){
 
     // Perkaya setiap pesanan dengan pohon yang dipesan/dialokasikan (untuk popup mitra)
     foreach ($rows as $r) {
-      $codes = [];
-      if (!empty($r->pohon_pilihan)) {
-        $decoded = json_decode((string)$r->pohon_pilihan, true);
-        if (is_array($decoded)) {
-          foreach ($decoded as $v) {
-            $c = strtoupper(trim((string)$v));
-            if ($c !== '') $codes[$c] = true;
-          }
-        }
-        $codes = array_keys($codes);
-      } else {
-        $codes = DB::table('mitra_hold_request')
-          ->where('idpesanan', $r->id)
-          ->pluck('idpohon')
-          ->map(fn($v) => strtoupper((string)$v))
-          ->filter()
-          ->unique()
-          ->values()
-          ->all();
-      }
-
-      $trees = [];
-      if (count($codes) > 0) {
-        $trows = Pohon::whereIn('idpohon', $codes)
-          ->select('idpohon', 'localname', 'species', 'desa', 'diameter', 'tinggi', 'foto_pohon')
-          ->get();
-        $map = [];
-        foreach ($trows as $t) {
-          $map[strtoupper((string)$t->idpohon)] = $t;
-        }
-        foreach ($codes as $c) {
-          $t = $map[$c] ?? null;
-          $trees[] = [
-            'code' => $c,
-            'localName' => $t ? (string)$t->localname : $c,
-            'species' => $t && $t->species ? (string)$t->species : null,
-            'desa' => $t ? (string)$t->desa : null,
-            'diameterCm' => $t && $t->diameter !== null ? (float)$t->diameter : null,
-            'heightM' => $t && $t->tinggi !== null ? (float)$t->tinggi : null,
-            'photoUrl' => $t && $t->foto_pohon ? (string)$t->foto_pohon : null,
-          ];
-        }
-      }
-      $r->trees = $trees;
-      $r->tree_count = count($trees);
+      $r->trees = $this->loadPesananTrees($r);
+      $r->tree_count = count($r->trees);
     }
 
     return response()->json($rows);
@@ -9401,6 +9400,10 @@ public function confirmasipembayaran(Request $request){
       ->orderByDesc('p.id')
       ->forPage($page, $perPage)
       ->get();
+    foreach ($rows as $r) {
+      $r->trees = $this->loadPesananTrees($r);
+      $r->tree_count = count($r->trees);
+    }
 
     return response()->json([
       'data' => $rows,
@@ -10299,6 +10302,31 @@ public function confirmasipembayaran(Request $request){
     }
 
     return response()->json(['value'=>'200','pesan'=>'Pesanan dibatalkan. '.$released.' pohon dikembalikan ke pool.']);
+  }
+
+  // Admin: detail satu pesanan mitra (termasuk pohon yang dipesan/dialokasikan)
+  public function mitradetailpesanan(Request $request){
+    $k = env('ADMIN_API_KEY', '');
+    if ($k === '' || !hash_equals($k, (string)$request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $id = (int)$request->input('id');
+    if (!$id) return response()->json(['value'=>'400','pesan'=>'id wajib'], 400);
+
+    $r = DB::table('mitra_pesanan as p')
+      ->join('mitra as m', 'm.id', '=', 'p.mitra_id')
+      ->join('member as u', 'u.id', '=', 'p.idmember')
+      ->leftJoin('program_mitra as pm', 'pm.id', '=', 'p.program_id')
+      ->leftJoin('member as a', 'a.id', '=', 'p.approved_by')
+      ->select('p.*', 'm.nama as mitra_nama', 'm.slug as mitra_slug',
+        'u.name as member_nama', 'u.emaile as member_email', 'pm.nama as program_nama', 'a.name as approved_by_name')
+      ->where('p.id', $id)
+      ->first();
+
+    if (!$r) return response()->json(['value'=>'404','pesan'=>'Pesanan tidak ditemukan'], 404);
+
+    $trees = $this->loadPesananTrees($r);
+    return response()->json(['data' => $r, 'trees' => $trees]);
   }
 
   // Mitra: input data pengadopsi SENDIRI (tanpa admin-key). Mitra selalu diambil dari member — tidak bisa pilih mitra lain.
