@@ -10411,7 +10411,7 @@ public function confirmasipembayaran(Request $request){
         'jml_pohon' => (int)$r->jml_pohon,
         'price' => (int)$r->price,
         'paid' => (string)$r->confirmation === 'yes',
-        'created_at' => optional($r->created_at)->toDateString(),
+        'created_at' => isset($r->created_at) && $r->created_at ? \Illuminate\Support\Carbon::parse($r->created_at)->toDateString() : null,
       ];
     }
 
