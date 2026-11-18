@@ -10582,6 +10582,8 @@ public function confirmasipembayaran(Request $request){
         'diameterCm' => $t->diameter !== null ? (float)$t->diameter : null,
         'heightM' => $t->tinggi !== null ? (float)$t->tinggi : null,
         'photoUrl' => $t->foto_pohon ? (string)$t->foto_pohon : null,
+        'photoUrl' => $t->foto_pohon ? (string)$t->foto_pohon : null,
+        'harga' => $t->harga ? (int) $t->harga : null,
         'status' => 'adopted',
       ];
     }
@@ -10596,6 +10598,7 @@ public function confirmasipembayaran(Request $request){
         'diameterCm' => $t->diameter !== null ? (float)$t->diameter : null,
         'heightM' => $t->tinggi !== null ? (float)$t->tinggi : null,
         'photoUrl' => $t->foto_pohon ? (string)$t->foto_pohon : null,
+        'harga' => $t->harga ? (int) $t->harga : null,
         'status' => 'reserved',
       ];
     }
