@@ -200,6 +200,7 @@ Route::post('gantipasswordmitra', [ApiController::class, 'gantipasswordmitra']);
 Route::post('simpansumberinfo', [ApiController::class, 'simpansumberinfo']);
 Route::get('sumberinfoadmn', [ApiController::class, 'sumberinfoadmn']);
 Route::post('mitramypesanan', [ApiController::class, 'mitramypesanan']);
+Route::post('mitramyinvoice', [ApiController::class, 'mitramyinvoice']);
 Route::get('mitrapendingpesanan', [ApiController::class, 'mitrapendingpesanan']);
 Route::post('mitraapprovepesanan', [ApiController::class, 'mitraapprovepesanan']);
 Route::post('mitrarejectpesanan', [ApiController::class, 'mitrarejectpesanan']);

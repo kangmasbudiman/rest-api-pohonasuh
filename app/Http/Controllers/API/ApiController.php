@@ -10385,6 +10385,49 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['data' => $r, 'trees' => $trees]);
   }
 
+  // Mitra: daftar tagihan adopsi mitra (per simpan) untuk ditampilkan di halaman Tagihan Saya
+  public function mitramyinvoice(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $mitraId = (int) $m->mitra_id;
+    $mitra = Mitra::find($mitraId);
+    $mitraName = $mitra ? (string)$mitra->nama : (string)$m->name;
+
+    $rows = DB::table('confirmation')
+      ->where('methode', 'Mitra')
+      ->where('name', $mitraName)
+      ->orderByDesc('id')
+      ->get();
+
+    $items = [];
+    foreach ($rows as $r) {
+      $items[] = [
+        'id' => (int)$r->id,
+        'invoice' => (string)$r->invoice,
+        'tgl' => (string)$r->tanggal,
+        'jml_pohon' => (int)$r->jml_pohon,
+        'price' => (int)$r->price,
+        'paid' => (string)$r->confirmation === 'yes',
+        'created_at' => optional($r->created_at)->toDateString(),
+      ];
+    }
+
+    $totalPohon = array_sum(array_column($items, 'jml_pohon'));
+    $totalAll = array_sum(array_column($items, 'price'));
+    $lunas = array_sum(array_map(fn($i) => $i['paid'] ? $i['price'] : 0, $items));
+    $belum = array_sum(array_map(fn($i) => !$i['paid'] ? $i['price'] : 0, $items));
+
+    return response()->json([
+      'value' => '200',
+      'member' => ['id' => $m->id, 'name' => $m->name, 'mitra' => $mitraName],
+      'summary' => ['total_invoice' => count($items), 'total_pohon' => $totalPohon, 'total' => $totalAll, 'lunas' => $lunas, 'belum' => $belum],
+      'data' => $items,
+    ]);
+  }
+
   // Mitra: input data pengadopsi SENDIRI (tanpa admin-key). Mitra selalu diambil dari member — tidak bisa pilih mitra lain.
   public function inputadopsimitraself(Request $request){
     $idMember = (int) $request->input('idmember');
@@ -10428,6 +10471,10 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value'=>'409','pesan'=>'Tidak ada adopsi valid','errors'=>$errors], 409);
     }
 
+    // Hitung total harga: Σ (harga_pohon × durasi)
+    $total = 0;
+    foreach ($valid as $v) $total += ((int)($v['pohon']->harga ?? 0)) * $v['dur'];
+
     DB::beginTransaction();
     try {
       $invoice = $this->buatInvoiceAcak();
@@ -10439,10 +10486,10 @@ public function confirmasipembayaran(Request $request){
       $konf->email = (string)($m->emaile ?? '');
       $konf->methode = 'Mitra';
       $konf->cur = 'IDR';
-      $konf->price = 0; // pre-paid — mitra menagih di luar sistem
+      $konf->price = $total;
       $konf->tanggal = $today;
       $konf->jml_pohon = count($valid);
-      $konf->confirmation = 'no'; // menunggu verifikasi admin — sertifikat terbit setelah diverifikasi
+      $konf->confirmation = 'no'; // menunggu verifikasi + pembayaran oleh mitra
       $konf->confirmationBy = null;
       $konf->foto = null;
       $konf->save();
@@ -10454,7 +10501,7 @@ public function confirmasipembayaran(Request $request){
         $adopsi->pengasuh = 0;
         $adopsi->nama = $v['nama'];
         $adopsi->email = $v['email'] ?? null;
-        $adopsi->price = 0;
+        $adopsi->price = ((int)($p->harga ?? 0)) * $v['dur'];
         $adopsi->cur = 'IDR';
         $adopsi->methode = 'Transfer';
         $adopsi->tgl_adopt = $v['tgl_adopt'];
