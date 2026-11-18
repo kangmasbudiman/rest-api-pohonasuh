@@ -10304,6 +10304,57 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Pesanan dibatalkan. '.$released.' pohon dikembalikan ke pool.']);
   }
 
+  // Mitra: riwayat pemesanan (filter status/q + pagination) — scoped ke mitra sendiri
+  public function mitrariwayatpesanan(Request $request){
+    $idMember = (int) $request->input('idmember');
+    $m = Member::find($idMember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $mitraId = (int) $m->mitra_id;
+
+    $q = trim((string)$request->input('q', ''));
+    $status = strtolower(trim((string)$request->input('status', 'semua')));
+    $page = max(1, (int)$request->input('page', 1));
+    $perPage = min(50, max(5, (int)$request->input('per_page', 10)));
+
+    $base = DB::table('mitra_pesanan')->where('mitra_id', $mitraId);
+    $summary = [
+      'pending' => (clone $base)->where('status', 'pending')->count(),
+      'approved' => (clone $base)->where('status', 'approved')->count(),
+      'rejected' => (clone $base)->where('status', 'rejected')->count(),
+      'cancelled' => (clone $base)->where('status', 'cancelled')->count(),
+    ];
+    $summary['all'] = array_sum($summary);
+
+    $query = DB::table('mitra_pesanan as p')
+      ->leftJoin('program_mitra as pm', 'pm.id', '=', 'p.program_id')
+      ->where('p.mitra_id', $mitraId);
+
+    if (in_array($status, ['pending', 'approved', 'rejected', 'cancelled'], true)) {
+      $query->where('p.status', $status);
+    }
+    if ($q !== '') {
+      $query->where(function ($w) use ($q) {
+        $w->where('p.desa', 'like', "%{$q}%")
+          ->orWhere('p.catatan', 'like', "%{$q}%")
+          ->orWhere('pm.nama', 'like', "%{$q}%");
+      });
+    }
+
+    $total = (clone $query)->count();
+    $rows = $query->select('p.*', 'pm.nama as program_nama')
+      ->orderByDesc('p.id')
+      ->forPage($page, $perPage)
+      ->get();
+    foreach ($rows as $r) {
+      $r->trees = $this->loadPesananTrees($r);
+      $r->tree_count = count($r->trees);
+    }
+
+    return response()->json(['data' => $rows, 'total' => $total, 'summary' => $summary, 'page' => $page, 'per_page' => $perPage]);
+  }
+
   // Admin: detail satu pesanan mitra (termasuk pohon yang dipesan/dialokasikan)
   public function mitradetailpesanan(Request $request){
     $k = env('ADMIN_API_KEY', '');
