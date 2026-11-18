@@ -8869,7 +8869,11 @@ public function confirmasipembayaran(Request $request){
       if ($p->adopted === 'adopted') {
         $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon sudah diadopsi']; continue;
       }
-      $valid[] = ['pohon'=>$p,'nama'=>$nama,'dur'=>$dur,'tgl_adopt'=>$tglAdopt,'memo'=>$memo];
+      $email = mb_substr(strtolower(trim((string)($it['email'] ?? ''))), 0, 150);
+      if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $errors[] = ['idpohon'=>$kode,'pesan'=>'Email pengadopsi wajib diisi & format valid']; continue;
+      }
+      $valid[] = ['pohon'=>$p,'nama'=>$nama,'dur'=>$dur,'tgl_adopt'=>$tglAdopt,'memo'=>$memo,'email'=>$email];
     }
     if (count($valid) === 0) {
       return response()->json(['value'=>'409','pesan'=>'Tidak ada adopsi valid','errors'=>$errors], 409);
@@ -8904,6 +8908,7 @@ public function confirmasipembayaran(Request $request){
         $adopsi->desa = $p->desa;
         $adopsi->pengasuh = 0;
         $adopsi->nama = $v['nama'];
+        $adopsi->email = $v['email'] ?? null;
         $adopsi->price = ((int)($p->harga ?? 0)) * $v['dur'];
         $adopsi->cur = 'IDR';
         $adopsi->methode = 'Transfer';
@@ -10413,7 +10418,11 @@ public function confirmasipembayaran(Request $request){
       if (!$p) { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon tidak ditemukan']; continue; }
       if ((int)($p->mitra_id ?? 0) !== $mitraId) { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon bukan milik Anda']; continue; }
       if ($p->adopted === 'adopted') { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon sudah diadopsi']; continue; }
-      $valid[] = ['pohon'=>$p,'nama'=>$nama,'dur'=>$dur,'tgl_adopt'=>$tglAdopt,'memo'=>$memo];
+      $email = mb_substr(strtolower(trim((string)($it['email'] ?? ''))), 0, 150);
+      if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $errors[] = ['idpohon'=>$kode,'pesan'=>'Email pengadopsi wajib diisi & format valid']; continue;
+      }
+      $valid[] = ['pohon'=>$p,'nama'=>$nama,'dur'=>$dur,'tgl_adopt'=>$tglAdopt,'memo'=>$memo,'email'=>$email];
     }
     if (count($valid) === 0) {
       return response()->json(['value'=>'409','pesan'=>'Tidak ada adopsi valid','errors'=>$errors], 409);
@@ -10444,6 +10453,7 @@ public function confirmasipembayaran(Request $request){
         $adopsi->desa = $p->desa;
         $adopsi->pengasuh = 0;
         $adopsi->nama = $v['nama'];
+        $adopsi->email = $v['email'] ?? null;
         $adopsi->price = 0;
         $adopsi->cur = 'IDR';
         $adopsi->methode = 'Transfer';
@@ -10481,7 +10491,7 @@ public function confirmasipembayaran(Request $request){
     $confirms = Confirmasi::where('methode', 'Mitra')->where('confirmation', 'no')->orderByDesc('id')->limit(200)->get();
     foreach ($confirms as $c) {
       $adopsi = DataAdopsi::where('invoice', $c->invoice)->orderBy('id')->get()->map(fn($a) => [
-        'id' => $a->id, 'nama' => $a->nama, 'idpohon' => $a->idpohon, 'desa' => $a->desa,
+        'id' => $a->id, 'nama' => $a->nama, 'email' => $a->email, 'idpohon' => $a->idpohon, 'desa' => $a->desa,
         'dur' => $a->dur, 'tgl_adopt' => $a->tgl_adopt ?? null, 'memo' => $a->memo, 'program_id' => $a->program_id,
       ])->all();
       if ($q !== '') {
