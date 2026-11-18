@@ -308,3 +308,4 @@ Route::get('getketegori_service', [ApiController::class, 'getketegori_service'])
 Route::middleware('auth:sanctum')->get('/user', function (Request $request) {
     return $request->user();
 });
+Route::get('pohonbyprogram', [ApiController::class, 'pohonbyprogram']);

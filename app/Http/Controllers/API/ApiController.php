@@ -10529,4 +10529,74 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Adopsi mitra diverifikasi — sertifikat terbit.']);
   }
 
+  // Mitra: daftar pohon dalam program milik mitra (dipesan/sudah diadopsi)
+  public function pohonbyprogram(Request $request){
+    $idmember = (int) $request->input('idmember');
+    $m = Member::find($idmember);
+    if (!$m || !(int)($m->mitra_id ?? 0)) {
+      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    }
+    $mitraId = (int) $m->mitra_id;
+    $programId = (int) $request->input('program_id');
+
+    // Validasi program milik mitra
+    if ($programId > 0) {
+      $owned = ProgramMitra::where('id', $programId)->where('mitra_id', $mitraId)->exists();
+      if (!$owned) return response()->json(['value'=>'404','pesan'=>'Program tidak ditemukan'], 404);
+    } else {
+      $programId = null;
+    }
+
+    // Pohon masih dipesan (hold approved, belum diadopsi) + pohon sudah diadopsi untuk program ini
+    $held = DB::table('mitra_hold_request as h')
+      ->join('data_pohon as p', 'p.idpohon', '=', 'h.idpohon')
+      ->where('h.mitra_id', $mitraId)
+      ->where('h.status', 'approved');
+    if ($programId !== null) $held->where('h.program_id', $programId);
+    $heldRows = $held->select('p.*', DB::raw("'reserved' as status_adopsi"))->get();
+
+    $adopted = DB::table('data_adopsi as a')
+      ->join('data_pohon as p', 'p.idpohon', '=', 'a.idpohon')
+      ->where('a.mitra_id', $mitraId);
+    if ($programId !== null) $adopted->where('a.program_id', $programId);
+    $adoptedRows = $adopted->select('p.*', DB::raw("'adopted' as status_adopsi"))->get();
+
+    $map = [];
+    foreach ($adoptedRows as $t) {
+      $map[(string)$t->idpohon] = [
+        'idpohon' => (string)$t->idpohon,
+        'localName' => (string)$t->localname,
+        'species' => $t->species ? (string)$t->species : null,
+        'desa' => (string)$t->desa,
+        'diameterCm' => $t->diameter !== null ? (float)$t->diameter : null,
+        'heightM' => $t->tinggi !== null ? (float)$t->tinggi : null,
+        'photoUrl' => $t->foto_pohon ? (string)$t->foto_pohon : null,
+        'status' => 'adopted',
+      ];
+    }
+    foreach ($heldRows as $t) {
+      $key = (string)$t->idpohon;
+      if (isset($map[$key])) continue; // sudah tercatat diadopsi
+      $map[$key] = [
+        'idpohon' => (string)$t->idpohon,
+        'localName' => (string)$t->localname,
+        'species' => $t->species ? (string)$t->species : null,
+        'desa' => (string)$t->desa,
+        'diameterCm' => $t->diameter !== null ? (float)$t->diameter : null,
+        'heightM' => $t->tinggi !== null ? (float)$t->tinggi : null,
+        'photoUrl' => $t->foto_pohon ? (string)$t->foto_pohon : null,
+        'status' => 'reserved',
+      ];
+    }
+
+    $items = array_values($map);
+    $dipesan = count(array_filter($items, fn($t) => $t['status'] === 'reserved'));
+    $diadopsi = count($items) - $dipesan;
+
+    return response()->json([
+      'data' => $items,
+      'summary' => ['total' => count($items), 'reserved' => $dipesan, 'adopted' => $diadopsi],
+    ]);
+  }
+
 }
