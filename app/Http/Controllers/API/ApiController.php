@@ -2307,13 +2307,12 @@ public function updateduration(Request $request){
   // getconfirmasi / createinvoice karena VPS tidak punya cron.
   // Jendela 24 jam–7 hari: order legacy yang lebih tua dari 7 hari TIDAK
   // tersentuh (±90 order pending 2018–2023 milik donor lama — membatalkan
-  // sekaligus akan mengirim notifikasi tidak relevan bertahun-tahun kemudian).
+  // Invoice mitra juga tunduk pada batas waktu bayar 1×24 jam — expired=cancel.
   private function kedaluwarsaPembayaran(){
     // methode 'Admin' = order reservasi admin — menunggu pembayaran oleh
     // pihak terkait, tidak boleh dibatalkan otomatis 24 jam.
     $konf = Confirmasi::where('confirmation','no')
       ->where('methode','!=','Admin')
-      ->where('methode','!=','Mitra')
       ->where(function($q){ $q->whereNull('foto')->orWhere('foto',''); })
       ->where('created_at','<', now()->subDay())
       ->where('created_at','>', now()->subDays(7))
@@ -2342,19 +2341,36 @@ public function updateduration(Request $request){
           $pohon->nama = '';
           $pohon->invoice = null;
           $pohon->tgl_adopt = null;
+          // Invoice mitra — lepas tautan ke mitra agar pohon kembali ke pool umum
+          if ((string)$fresh->methode === 'Mitra') {
+            $pohon->mitra_id = null;
+            $pohon->reserved_name = null;
+            $pohon->reserved_at = null;
+            $pohon->reserved_admin = 0;
+          }
           $pohon->update();
         }
       }
       Dataadopsi::where('invoice',$fresh->invoice)->delete();
 
-      $pesan = new Pesan();
-      $pesan->idmember = $fresh->idpengasuh;
-      $pesan->pesan = 'Maaf, order Anda dibatalkan karena melewati batas waktu pembayaran 1x24 jam. Pohon telah dikembalikan ke daftar adopsi.';
-      $pesan->pesan_en = 'Sorry, your order was canceled because it passed the 1x24 hour payment deadline. The tree has been returned to the adoption list.';
-      $pesan->link = '/dashboard';
-      $pesan->status = 'noread';
-      $pesan->save();
-      $this->kirimPush($fresh->idpengasuh, 'Order Dibatalkan', 'Maaf, order Anda melewati batas waktu pembayaran 1x24 jam dan dibatalkan');
+      $isMitra = (string)$fresh->methode === 'Mitra';
+      $link = $isMitra ? '/mitra/tagihan' : '/dashboard';
+      $recipient = null;
+      if ($isMitra) {
+        $recipient = Member::where('emaile', (string)$fresh->email)->first();
+      } else {
+        $recipient = $fresh->idpengasuh ? Member::find($fresh->idpengasuh) : null;
+      }
+      if ($recipient) {
+        $pesan = new Pesan();
+        $pesan->idmember = $recipient->id;
+        $pesan->pesan = 'Maaf, order Anda dibatalkan karena melewati batas waktu pembayaran 1x24 jam. Pohon telah dikembalikan ke daftar adopsi.';
+        $pesan->pesan_en = 'Sorry, your order was canceled because it passed the 1x24 hour payment deadline. The tree has been returned to the adoption list.';
+        $pesan->link = $link;
+        $pesan->status = 'noread';
+        $pesan->save();
+        $this->kirimPush($recipient->id, 'Order Dibatalkan', 'Maaf, order Anda melewati batas waktu pembayaran 1x24 jam dan dibatalkan');
+      }
     }
   }
 
@@ -10387,6 +10403,7 @@ public function confirmasipembayaran(Request $request){
 
   // Mitra: daftar tagihan adopsi mitra (per simpan) untuk ditampilkan di halaman Tagihan Saya
   public function mitramyinvoice(Request $request){
+    $this->kedaluwarsaPembayaran();
     $idMember = (int) $request->input('idmember');
     $m = Member::find($idMember);
     if (!$m || !(int)($m->mitra_id ?? 0)) {
@@ -10404,13 +10421,16 @@ public function confirmasipembayaran(Request $request){
 
     $items = [];
     foreach ($rows as $r) {
+      $status = (string)$r->confirmation;   // yes | no | cancel
       $items[] = [
         'id' => (int)$r->id,
         'invoice' => (string)$r->invoice,
         'tgl' => (string)$r->tanggal,
         'jml_pohon' => (int)$r->jml_pohon,
         'price' => (int)$r->price,
-        'paid' => (string)$r->confirmation === 'yes',
+        'status' => $status,
+        'paid' => $status === 'yes',
+        'expired' => $status === 'cancel',
         'created_at' => isset($r->created_at) && $r->created_at ? \Illuminate\Support\Carbon::parse($r->created_at)->toDateString() : null,
       ];
     }
@@ -10418,12 +10438,13 @@ public function confirmasipembayaran(Request $request){
     $totalPohon = array_sum(array_column($items, 'jml_pohon'));
     $totalAll = array_sum(array_column($items, 'price'));
     $lunas = array_sum(array_map(fn($i) => $i['paid'] ? $i['price'] : 0, $items));
-    $belum = array_sum(array_map(fn($i) => !$i['paid'] ? $i['price'] : 0, $items));
+    $belum = array_sum(array_map(fn($i) => $i['status'] === 'no' ? $i['price'] : 0, $items));
+    $expired = array_sum(array_map(fn($i) => $i['expired'] ? $i['price'] : 0, $items));
 
     return response()->json([
       'value' => '200',
       'member' => ['id' => $m->id, 'name' => $m->name, 'mitra' => $mitraName],
-      'summary' => ['total_invoice' => count($items), 'total_pohon' => $totalPohon, 'total' => $totalAll, 'lunas' => $lunas, 'belum' => $belum],
+      'summary' => ['total_invoice' => count($items), 'total_pohon' => $totalPohon, 'total' => $totalAll, 'lunas' => $lunas, 'belum' => $belum, 'expired' => $expired],
       'data' => $items,
     ]);
   }
