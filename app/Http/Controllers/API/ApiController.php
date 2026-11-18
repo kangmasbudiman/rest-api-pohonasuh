@@ -10533,10 +10533,21 @@ public function confirmasipembayaran(Request $request){
   public function pohonbyprogram(Request $request){
     $idmember = (int) $request->input('idmember');
     $m = Member::find($idmember);
-    if (!$m || !(int)($m->mitra_id ?? 0)) {
-      return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+    if (!$m) {
+      return response()->json(['value'=>'403','pesan'=>'Akun tidak ditemukan'], 403);
     }
-    $mitraId = (int) $m->mitra_id;
+    // Mitra: pohon miliknya sendiri. Admin (admin>=1): cukup pass mitra_id.
+    $forced = $m->admin >= 1 ? (int) $request->input('mitra_id', 0) : 0;
+    if ($forced > 0 && $m->admin >= 1) {
+      $mitra = Mitra::find($forced);
+      if (!$mitra) return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
+      $mitraId = $forced;
+    } else {
+      if (!(int)($m->mitra_id ?? 0)) {
+        return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
+      }
+      $mitraId = (int) $m->mitra_id;
+    }
     $programId = (int) $request->input('program_id');
 
     // Validasi program milik mitra
