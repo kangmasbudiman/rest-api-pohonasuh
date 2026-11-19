@@ -9097,7 +9097,13 @@ public function confirmasipembayaran(Request $request){
     if (!$m || !(int)($m->mitra_id ?? 0)) {
       return response()->json(['value'=>'403','pesan'=>'Akun bukan mitra'], 403);
     }
-    $rows = Dataadopsi::where('mitra_id', $m->mitra_id)->orderByDesc('id')->get();
+    $rows = Dataadopsi::join(
+        DB::raw('(SELECT idpohon, MIN(id) AS pmin_id FROM data_pohon GROUP BY idpohon) pmin'),
+        'data_adopsi.idpohon', '=', 'pmin.idpohon')
+      ->join('data_pohon', 'data_pohon.id', '=', 'pmin.pmin_id')
+      ->where('data_adopsi.mitra_id', $m->mitra_id)
+      ->orderByDesc('data_adopsi.id')
+      ->get(['data_adopsi.*', 'data_pohon.localname', 'data_pohon.foto_pohon']);
     return response()->json($rows);
   }
 
