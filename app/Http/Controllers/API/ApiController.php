@@ -8904,7 +8904,8 @@ public function confirmasipembayaran(Request $request){
       $konf = new Confirmasi();
       $konf->invoice = $invoice;
       $konf->tgl_pesan = $today;
-      $konf->idpengasuh = 0;
+      $memberMitra = Member::where('mitra_id', $mitraId)->first();
+      $konf->idpengasuh = $memberMitra ? (int) $memberMitra->id : 0;
       $konf->name = $mitra->nama;
       $konf->email = '';
       $konf->methode = 'Mitra';
@@ -10502,7 +10503,7 @@ public function confirmasipembayaran(Request $request){
       $konf = new Confirmasi();
       $konf->invoice = $invoice;
       $konf->tgl_pesan = $today;
-      $konf->idpengasuh = 0;
+      $konf->idpengasuh = (int) $m->id;   // mitra sendiri = pembayar
       $konf->name = $mitra->nama;
       $konf->email = (string)($m->emaile ?? '');
       $konf->methode = 'Mitra';
