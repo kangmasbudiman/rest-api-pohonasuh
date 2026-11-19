@@ -9719,6 +9719,7 @@ public function confirmasipembayaran(Request $request){
   $password = (string)$request->input('password');
   $jenis = strtolower(trim((string)$request->input('jenis')));
   $bidang = trim((string)$request->input('bidang_kegiatan'));
+  $bidangLain = trim((string)$request->input('bidang_kegiatan_lain'));
   $provinsi = mb_substr(trim((string)$request->input('provinsi')), 0, 150);
   $kota = mb_substr(trim((string)$request->input('kota')), 0, 150);
   $website = mb_substr(trim((string)$request->input('website')), 0, 255);
@@ -9738,6 +9739,10 @@ public function confirmasipembayaran(Request $request){
 
   $bidangOptions = ['Lingkungan dan Konservasi','Pendidikan','Sosial dan Pemberdayaan','CSR','Keanekaragaman Hayati','Perubahan Iklim','Lainnya'];
   if ($bidang === '' || !in_array($bidang, $bidangOptions, true)) $errors[] = 'Bidang kegiatan wajib dipilih.';
+  if ($bidang === 'Lainnya') {
+    if ($bidangLain === '') $errors[] = 'Bidang Kegiatan dipilih “Lainnya” — silakan isi detail kegiatan wajib diisi.';
+    else if (mb_strlen($bidangLain) > 150) $errors[] = 'Detail bidang kegiatan lainnya maksimal 150 karakter.';
+  }
 
   if ($website !== '' && !filter_var($website, FILTER_VALIDATE_URL)) $errors[] = 'Format website tidak valid.';
   if ($website !== '' && mb_strlen($website) > 255) $errors[] = 'Website maksimal 255 karakter.';
@@ -9821,6 +9826,8 @@ public function confirmasipembayaran(Request $request){
     $bidangOptions = ['Lingkungan dan Konservasi','Pendidikan','Sosial dan Pemberdayaan','CSR','Keanekaragaman Hayati','Perubahan Iklim','Lainnya'];
     $bidang = trim((string)$request->input('bidang_kegiatan'));
     if (!in_array($bidang, $bidangOptions, true)) $bidang = 'Lainnya';
+    $bidangLain = trim((string)$request->input('bidang_kegiatan_lain'));
+    if ($bidang === 'Lainnya' && $bidangLain !== '') $bidang = $bidangLain;
 
     DB::beginTransaction();
     try {
