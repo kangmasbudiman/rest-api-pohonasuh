@@ -10438,6 +10438,8 @@ public function confirmasipembayaran(Request $request){
         'status' => $status,
         'paid' => $status === 'yes',
         'expired' => $status === 'cancel',
+        'link_invoice' => isset($r->link_invoice) ? (string)$r->link_invoice : '',
+        'bukti' => isset($r->foto) ? (string)$r->foto : '',
         'created_at' => isset($r->created_at) && $r->created_at ? \Illuminate\Support\Carbon::parse($r->created_at)->toDateString() : null,
       ];
     }
