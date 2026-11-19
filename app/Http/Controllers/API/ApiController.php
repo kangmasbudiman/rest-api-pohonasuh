@@ -10574,9 +10574,14 @@ public function confirmasipembayaran(Request $request){
     $totalPohon = 0;
     $host = $request->getSchemeAndHttpHost();
     $baseUrl = preg_replace('#/index\.php$#', '', $host);
-    $confirms = Confirmasi::where('methode', 'Mitra')->where('confirmation', 'no')->orderByDesc('id')->limit(200)->get();
+    // Menu "Bukti Transfer Mitra" (bukti=1) menampilkan SEMUA invoice mitra
+    // yang punya bukti — termasuk yang sudah diverifikasi (status lunas) atau
+    // kadaluarsa. Verifikasi Adopsi Mitra hanya menampilkan yang menunggu.
+    $confirms = Confirmasi::where('methode', 'Mitra');
+    if (!$onlyBukti) $confirms = $confirms->where('confirmation', 'no');
+    $confirms = $confirms->orderByDesc('id')->limit(200)->get();
     foreach ($confirms as $c) {
-      if ($onlyBukti && !$c->foto) continue; // bukti=1 → hanya yang transfer manual (ada bukti)
+      if ($onlyBukti && !$c->foto) continue; // bukti=1 → hanya yang ada bukti
       $adopsi = DataAdopsi::where('invoice', $c->invoice)->orderBy('id')->get()->map(fn($a) => [
         'id' => $a->id, 'nama' => $a->nama, 'email' => $a->email, 'idpohon' => $a->idpohon, 'desa' => $a->desa,
         'dur' => $a->dur, 'tgl_adopt' => $a->tgl_adopt ?? null, 'memo' => $a->memo, 'program_id' => $a->program_id,
@@ -10596,6 +10601,7 @@ public function confirmasipembayaran(Request $request){
         'adopsi' => $adopsi,
         'bukti' => $c->foto ? $baseUrl . '/upload/slider/' . $c->foto : '',
         'price' => (int)$c->price,
+        'status' => (string)$c->confirmation,
       ];
     }
     return response()->json(['data' => $data, 'total_invoice' => count($data), 'total_pohon' => $totalPohon]);
