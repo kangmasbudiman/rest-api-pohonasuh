@@ -10569,10 +10569,14 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
     }
     $q = trim((string)$request->input('q', ''));
+    $onlyBukti = (string)$request->input('bukti', '') === '1';
     $data = [];
     $totalPohon = 0;
+    $host = $request->getSchemeAndHttpHost();
+    $baseUrl = preg_replace('#/index\.php$#', '', $host);
     $confirms = Confirmasi::where('methode', 'Mitra')->where('confirmation', 'no')->orderByDesc('id')->limit(200)->get();
     foreach ($confirms as $c) {
+      if ($onlyBukti && !$c->foto) continue; // bukti=1 → hanya yang transfer manual (ada bukti)
       $adopsi = DataAdopsi::where('invoice', $c->invoice)->orderBy('id')->get()->map(fn($a) => [
         'id' => $a->id, 'nama' => $a->nama, 'email' => $a->email, 'idpohon' => $a->idpohon, 'desa' => $a->desa,
         'dur' => $a->dur, 'tgl_adopt' => $a->tgl_adopt ?? null, 'memo' => $a->memo, 'program_id' => $a->program_id,
@@ -10590,6 +10594,8 @@ public function confirmasipembayaran(Request $request){
         'tgl' => optional($c->created_at)->toDateString(),
         'jumlah' => count($adopsi),
         'adopsi' => $adopsi,
+        'bukti' => $c->foto ? $baseUrl . '/upload/slider/' . $c->foto : '',
+        'price' => (int)$c->price,
       ];
     }
     return response()->json(['data' => $data, 'total_invoice' => count($data), 'total_pohon' => $totalPohon]);
