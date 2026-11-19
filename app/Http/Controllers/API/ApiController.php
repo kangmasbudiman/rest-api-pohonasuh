@@ -10544,7 +10544,7 @@ public function confirmasipembayaran(Request $request){
       Log::error('inputadopsimitraself gagal: '.$e->getMessage());
       return response()->json(['value'=>'500','pesan'=>'Gagal mencatat adopsi: '.$e->getMessage()], 500);
     }
-    return response()->json(['value'=>'200','invoice'=>null,'jumlah'=>count($valid),'dilewati'=>count($errors),'errors'=>$errors,'pesan'=>count($valid).' pengadopsi dicatat — menunggu verifikasi admin untuk terbit sertifikat.']);
+    return response()->json(['value'=>'200','invoice'=>$invoice,'jumlah'=>count($valid),'dilewati'=>count($errors),'errors'=>$errors,'pesan'=>count($valid).' pengadopsi dicatat — menunggu verifikasi admin untuk terbit sertifikat.']);
   }
 
   // Admin: daftar adopsi mitra menunggu verifikasi (grouped per invoice)
