@@ -5634,6 +5634,11 @@ public function confirmasipembayaran(Request $request){
       return null;
     }
     $da->jml_pohon = Dataadopsi::where('certnum', $certnum)->count();
+    // Kepemilikan halaman "Bagikan" & sertifikat (mitra = pembayar). Adopsi
+    // mitra menulis pengasuh=0 → pemilik ditentukan lewat confirmation.
+    $konf = Confirmasi::where('invoice', $da->invoice)->first();
+    $da->invoice_idpengasuh = $konf ? (int)$konf->idpengasuh : 0;
+    $da->invoice_methode = $konf ? (string)$konf->methode : '';
     $m = Member::find($da->pengasuh);
     $da->nama_pengasuh = $m ? trim((string) $m->name) : '';
     $nama = $this->namaSertifikat($da);
