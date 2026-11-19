@@ -8912,7 +8912,7 @@ public function confirmasipembayaran(Request $request){
       $konf->cur = 'IDR';
       $konf->price = $total;
       $konf->tanggal = $today;
-      $konf->jml_pohon = count($valid);
+      $konf->jml_pohon = count(array_unique(array_map(fn($v) => $v['pohon']->idpohon, $valid))); // pohon unik, bukan jumlah pengadopsi
       $konf->confirmation = 'no';
       $konf->confirmationBy = null;
       $konf->foto = null;
@@ -10429,11 +10429,17 @@ public function confirmasipembayaran(Request $request){
     $items = [];
     foreach ($rows as $r) {
       $status = (string)$r->confirmation;   // yes | no | cancel
+      // hitung pohon UNIK dari data_adopsi (1 pohon bisa >1 pengadopsi)
+      $jmlUnik = (int) DB::table('data_adopsi')
+        ->where('invoice', $r->invoice)
+        ->selectRaw('COUNT(DISTINCT idpohon) AS c')
+        ->value('c');
+      if ($jmlUnik <= 0) $jmlUnik = (int)$r->jml_pohon;
       $items[] = [
         'id' => (int)$r->id,
         'invoice' => (string)$r->invoice,
         'tgl' => (string)$r->tanggal,
-        'jml_pohon' => (int)$r->jml_pohon,
+        'jml_pohon' => $jmlUnik,
         'price' => (int)$r->price,
         'status' => $status,
         'paid' => $status === 'yes',
@@ -10518,7 +10524,7 @@ public function confirmasipembayaran(Request $request){
       $konf->cur = 'IDR';
       $konf->price = $total;
       $konf->tanggal = $today;
-      $konf->jml_pohon = count($valid);
+      $konf->jml_pohon = count(array_unique(array_map(fn($v) => $v['pohon']->idpohon, $valid))); // pohon unik, bukan jumlah pengadopsi
       $konf->confirmation = 'no'; // menunggu verifikasi + pembayaran oleh mitra
       $konf->confirmationBy = null;
       $konf->foto = null;
