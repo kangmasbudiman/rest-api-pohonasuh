@@ -9170,11 +9170,50 @@ public function confirmasipembayaran(Request $request){
 
   // Daftar provinsi unik (dari data organisasi mitra yang dikelola admin)
   // untuk dropdown input provinsi pada program mitra.
+  // ===== Provinsi =====
+  // Daftar provinsi (id + nama, order by name) — halaman admin Kelola Provinsi.
+  public function provinsiadm(){
+    $rows = \App\Models\Provinsi::orderBy('name')->get(['id','name']);
+    return response()->json($rows);
+  }
+
+  public function tambahprovinsi(Request $request){
+    $name = trim((string)$request->input('name'));
+    if ($name === '') return response()->json(['value'=>400,'pesan'=>'Nama provinsi wajib diisi.']);
+    if (\App\Models\Provinsi::whereRaw("LOWER(name) = LOWER(?)", [$name])->exists()) {
+      return response()->json(['value'=>409,'pesan'=>'Provinsi "'.$name.'" sudah ada.']);
+    }
+    $row = \App\Models\Provinsi::create(['name'=>$name]);
+    return response()->json(['value'=>200,'id'=>$row->id,'pesan'=>'Berhasil disimpan.']);
+  }
+
+  public function editprovinsi(Request $request){
+    $id = (int)$request->input('id');
+    $row = \App\Models\Provinsi::find($id);
+    if (!$row) return response()->json(['value'=>404,'pesan'=>'Provinsi tidak ditemukan.']);
+    $name = trim((string)$request->input('name'));
+    if ($name === '') return response()->json(['value'=>400,'pesan'=>'Nama provinsi wajib diisi.']);
+    if (\App\Models\Provinsi::whereRaw("LOWER(name) = LOWER(?)", [$name])->where('id','!=',$id)->exists()) {
+      return response()->json(['value'=>409,'pesan'=>'Provinsi "'.$name.'" sudah ada.']);
+    }
+    $row->update(['name'=>$name]);
+    return response()->json(['value'=>200,'pesan'=>'Berhasil disimpan.']);
+  }
+
+  public function hapusprovinsi(Request $request){
+    $id = (int)$request->input('id');
+    $row = \App\Models\Provinsi::find($id);
+    if (!$row) return response()->json(['value'=>404,'pesan'=>'Provinsi tidak ditemukan.']);
+    $row->delete();
+    return response()->json(['value'=>200,'pesan'=>'Provinsi dihapus.']);
+  }
+
+  // Data referensi provinsi — diambil dari tabel `provinsi` baru (sumber tunggal
+  // untuk pilihan provinsi di Program Mitra).
   public function provinsilist(Request $request){
-    $rows = \App\Models\OrganisasiMitra::whereNotNull('provinsi')
-      ->where('provinsi', '!=', '')
-      ->get(['provinsi']);
-    $list = $rows->pluck('provinsi')
+    $list = \App\Models\Provinsi::whereNotNull('name')
+      ->where('name', '!=', '')
+      ->pluck('name')
       ->map(fn ($v) => trim((string) $v))
       ->filter()
       ->unique()
