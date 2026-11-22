@@ -9250,6 +9250,7 @@ public function confirmasipembayaran(Request $request){
     $p->durasi = $request->input('durasi') ?: null;
     $p->aktif = (int) $request->input('aktif', 1);
     $p->budget = $request->input('budget') ? (float) $request->input('budget') : null;
+    $p->budget_detail = $request->input('budget_detail') ?: null;
     $p->provinsi = $request->input('provinsi') ?: null;
     $p->save();
     return response()->json(['value'=>'200','pesan'=>'Program ditambahkan','id'=>$p->id]);
@@ -9268,6 +9269,7 @@ public function confirmasipembayaran(Request $request){
     if ($request->has('durasi')) $p->durasi = $request->input('durasi') ?: null;
     if ($request->has('aktif')) $p->aktif = (int)$request->input('aktif');
     if ($request->has('budget')) $p->budget = $request->input('budget') ? (float)$request->input('budget') : null;
+    if ($request->has('budget_detail')) $p->budget_detail = $request->input('budget_detail') ?: null;
     if ($request->has('provinsi')) $p->provinsi = $request->input('provinsi') ?: null;
     $p->save();
     return response()->json(['value'=>'200','pesan'=>'Program diperbarui']);
