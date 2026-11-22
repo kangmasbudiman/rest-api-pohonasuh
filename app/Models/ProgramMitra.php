@@ -11,7 +11,7 @@ class ProgramMitra extends Model
     protected $guarded = ['id'];
 
     protected $table = 'program_mitra';
-    protected $fillable = ['mitra_id', 'nama', 'deskripsi', 'logo', 'tagging_template', 'tgl_mulai', 'tgl_selesai', 'durasi', 'aktif'];
+    protected $fillable = ['mitra_id', 'nama', 'deskripsi', 'logo', 'tagging_template', 'tgl_mulai', 'tgl_selesai', 'durasi', 'aktif', 'budget', 'provinsi'];
     protected $primaryKey = 'id';
     protected $casts = ['aktif' => 'integer'];
 }

@@ -9168,6 +9168,21 @@ public function confirmasipembayaran(Request $request){
   }
 
 
+  // Daftar provinsi unik (dari data organisasi mitra yang dikelola admin)
+  // untuk dropdown input provinsi pada program mitra.
+  public function provinsilist(Request $request){
+    $rows = \App\Models\OrganisasiMitra::whereNotNull('provinsi')
+      ->where('provinsi', '!=', '')
+      ->get(['provinsi']);
+    $list = $rows->pluck('provinsi')
+      ->map(fn ($v) => trim((string) $v))
+      ->filter()
+      ->unique()
+      ->values()
+      ->all();
+    return response()->json($list);
+  }
+
   // ===== Program Mitra =====
   public function programmitralist(Request $request){
     $mitraId = (int) $request->input('mitra_id');
@@ -9195,6 +9210,8 @@ public function confirmasipembayaran(Request $request){
     $p->tgl_selesai = $request->input('tgl_selesai') ?: null;
     $p->durasi = $request->input('durasi') ?: null;
     $p->aktif = (int) $request->input('aktif', 1);
+    $p->budget = $request->input('budget') ? (float) $request->input('budget') : null;
+    $p->provinsi = $request->input('provinsi') ?: null;
     $p->save();
     return response()->json(['value'=>'200','pesan'=>'Program ditambahkan','id'=>$p->id]);
   }
@@ -9211,6 +9228,8 @@ public function confirmasipembayaran(Request $request){
     if ($request->has('tgl_selesai')) $p->tgl_selesai = $request->input('tgl_selesai') ?: null;
     if ($request->has('durasi')) $p->durasi = $request->input('durasi') ?: null;
     if ($request->has('aktif')) $p->aktif = (int)$request->input('aktif');
+    if ($request->has('budget')) $p->budget = $request->input('budget') ? (float)$request->input('budget') : null;
+    if ($request->has('provinsi')) $p->provinsi = $request->input('provinsi') ?: null;
     $p->save();
     return response()->json(['value'=>'200','pesan'=>'Program diperbarui']);
   }
