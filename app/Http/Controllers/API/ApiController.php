@@ -9225,7 +9225,7 @@ public function confirmasipembayaran(Request $request){
   // ===== Program Mitra =====
   public function programmitralist(Request $request){
     $mitraId = (int) $request->input('mitra_id');
-    $q = ProgramMitra::orderBy('nama');
+    $q = ProgramMitra::orderByDesc('id'); // program terbaru (id terbesar) tampil paling atas
     if ($mitraId > 0) $q->where('mitra_id', $mitraId);
     return response()->json($q->get());
   }
