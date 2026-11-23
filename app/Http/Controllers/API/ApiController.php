@@ -9532,11 +9532,19 @@ public function confirmasipembayaran(Request $request){
     $provinsiList = $program && $program->provinsi
       ? array_values(array_filter(array_map('trim', explode(',', (string) $program->provinsi))))
       : [];
+    $sedangDipilih = DB::table('mitra_hold_request')->where('idpesanan', $id)->where('status', 'approved')->pluck('idpohon')->all();
     $query = Pohon::whereIn('idpohon', $codes)
-      ->where('adopted', 'available')
       ->where('beku', '!=', 'yes')
-      ->whereNull('mitra_id')
-      ->where('reserved_admin', 0);
+      ->where(function ($w) use ($req, $sedangDipilih) {
+        $w->where(function ($a) {
+            $a->where('adopted', 'available')->whereNull('mitra_id')->where('reserved_admin', 0);
+          });
+        if (count($sedangDipilih) > 0) {
+          $w->orWhere(function ($b) use ($req, $sedangDipilih) {
+            $b->where('adopted', 'reserved')->where('mitra_id', $req->mitra_id)->whereIn('idpohon', $sedangDipilih);
+          });
+        }
+      });
     if (count($provinsiList) > 0) {
       $query->whereIn('desa', Desa::whereIn('provinsi', $provinsiList)->pluck('nama')->all());
     }
@@ -9601,19 +9609,35 @@ public function confirmasipembayaran(Request $request){
     }
     $programId = (int) $request->input('program_id');
     $desa = trim((string) $request->input('desa'));
+    $pesananId = (int) $request->input('pesanan_id');
     $program = $programId ? ProgramMitra::find($programId) : null;
     $provinsiList = $program && $program->provinsi
       ? array_values(array_filter(array_map('trim', explode(',', (string) $program->provinsi))))
       : [];
-    $query = Pohon::where('adopted', 'available')
-      ->where('beku', '!=', 'yes')
-      ->whereNull('mitra_id')
-      ->where('reserved_admin', 0);
+    // Pohon tersedia + pohon yang sedang dialokasikan ke pesanan ini (supaya
+    // admin bisa mempertahankan pilihan lama saat mengatur ulang).
+    $sedangDipilih = $pesananId > 0
+      ? DB::table('mitra_hold_request')->where('idpesanan', $pesananId)->where('status', 'approved')->pluck('idpohon')->all()
+      : [];
+    $query = Pohon::where('beku', '!=', 'yes')
+      ->where(function ($w) use ($sedangDipilih) {
+        $w->where(function ($a) {
+            $a->where('adopted', 'available')->whereNull('mitra_id')->where('reserved_admin', 0);
+          });
+        if (count($sedangDipilih) > 0) {
+          $w->orWhere(function ($b) use ($sedangDipilih) {
+            $b->where('adopted', 'reserved')->whereIn('idpohon', $sedangDipilih);
+          });
+        }
+      });
     if ($desa !== '') $query->where('desa', $desa);
     if (count($provinsiList) > 0) {
       $query->whereIn('desa', Desa::whereIn('provinsi', $provinsiList)->pluck('nama')->all());
     }
     $rows = $query->orderBy('id')->limit(300)->get();
+    foreach ($rows as $r) {
+      $r->sedang_dipilih = in_array($r->idpohon, $sedangDipilih, true);
+    }
     return response()->json(['data'=>$rows, 'provinsi'=>$provinsiList]);
   }
 
