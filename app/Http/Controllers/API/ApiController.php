@@ -10465,6 +10465,88 @@ public function confirmasipembayaran(Request $request){
     return response()->json(['value'=>'200','pesan'=>'Pesanan dihapus. '.$released.' pohon dikembalikan ke pool.']);
   }
 
+  // ===== Pembayaran DP mitra =====
+  // Mitra mengajukan DP untuk pesanan — status awal "menunggu".
+  public function ajukanDp(Request $request){
+    $idmember = (int) $request->input('idmember');
+    $id = (int) $request->input('id');
+    $jumlah = (float) $request->input('jumlah');
+    $bukti = trim((string)$request->input('bukti'));
+    if (!$idmember || !$id || $jumlah <= 0 || $bukti === '') {
+      return response()->json(['value'=>'400','pesan'=>'Pesanan, jumlah, dan bukti transfer wajib diisi'], 400);
+    }
+    $order = DB::table('mitra_pesanan')->where('id',$id)->where('idmember',$idmember)->first();
+    if (!$order) return response()->json(['value'=>'404','pesan'=>'Pesanan tidak ditemukan'], 404);
+    if ($order->status === 'dihapus') return response()->json(['value'=>'400','pesan'=>'Pesanan sudah dihapus'], 400);
+
+    DB::table('pembayaran')->insert([
+      'pesanan_id'=>$id,
+      'mitra_id'=>$order->mitra_id,
+      'idmember'=>$idmember,
+      'jenis'=>'DP',
+      'jumlah'=>$jumlah,
+      'bukti'=>$bukti,
+      'status'=>'menunggu',
+      'created_at'=>now(),
+      'updated_at'=>now(),
+    ]);
+    return response()->json(['value'=>'200','pesan'=>'DP diajukan, menunggu verifikasi admin']);
+  }
+
+  // Riwayat DP milik mitra.
+  public function daftarDp(Request $request){
+    $idmember = (int) $request->input('idmember');
+    if (!$idmember) return response()->json(['value'=>'400','pesan'=>'idmember wajib'], 400);
+    $rows = DB::table('pembayaran as p')
+      ->leftJoin('mitra_pesanan as mp','mp.id','=','p.pesanan_id')
+      ->leftJoin('program_mitra as pm','pm.id','=','mp.program_id')
+      ->where('p.idmember',$idmember)
+      ->select('p.*','pm.nama as program_nama')
+      ->orderByDesc('p.id')
+      ->get();
+    return response()->json(['data'=>$rows]);
+  }
+
+  // Admin: semua DP untuk diverifikasi (butuh X-Admin-Key).
+  public function daftarDpAdmin(Request $request){
+    $k = env('ADMIN_API_KEY','');
+    if ($k === '' || !hash_equals($k, (string) $request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $rows = DB::table('pembayaran as p')
+      ->leftJoin('mitra_pesanan as mp','mp.id','=','p.pesanan_id')
+      ->leftJoin('program_mitra as pm','pm.id','=','mp.program_id')
+      ->leftJoin('mitra as m','m.id','=','p.mitra_id')
+      ->select('p.*','pm.nama as program_nama','m.nama as mitra_nama')
+      ->orderByRaw("FIELD(p.status,'menunggu','disetujui','ditolak')")
+      ->orderByDesc('p.id')
+      ->get();
+    return response()->json(['data'=>$rows]);
+  }
+
+  // Admin: setujui / tolak DP (butuh X-Admin-Key).
+  public function verifikasiDp(Request $request){
+    $k = env('ADMIN_API_KEY','');
+    if ($k === '' || !hash_equals($k, (string) $request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $id = (int) $request->input('id');
+    $status = trim((string)$request->input('status'));
+    $iduser = (int) $request->input('iduser');
+    if (!$id || !in_array($status,['disetujui','ditolak'],true)) {
+      return response()->json(['value'=>'400','pesan'=>'Data tidak valid'], 400);
+    }
+    $row = DB::table('pembayaran')->where('id',$id)->first();
+    if (!$row) return response()->json(['value'=>'404','pesan'=>'Pembayaran tidak ditemukan'], 404);
+    DB::table('pembayaran')->where('id',$id)->update([
+      'status'=>$status,
+      'verified_by'=>$iduser ?: null,
+      'verified_at'=>now(),
+      'updated_at'=>now(),
+    ]);
+    return response()->json(['value'=>'200','pesan'=>'DP '.($status==='disetujui'?'disetujui':'ditolak')]);
+  }
+
   public function mitrariwayatpesanan(Request $request){
     $idMember = (int) $request->input('idmember');
     $m = Member::find($idMember);
@@ -10511,6 +10593,9 @@ public function confirmasipembayaran(Request $request){
     foreach ($rows as $r) {
       $r->trees = $this->loadPesananTrees($r);
       $r->tree_count = count($r->trees);
+      $dp = DB::table('pembayaran')->where('pesanan_id', $r->id)->where('jenis', 'DP')->orderByDesc('id')->first();
+      $r->dp_status = $dp ? $dp->status : null;
+      $r->dp_jumlah = $dp ? (float) $dp->jumlah : null;
     }
 
     return response()->json(['data' => $rows, 'total' => $total, 'summary' => $summary, 'page' => $page, 'per_page' => $perPage]);

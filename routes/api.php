@@ -211,6 +211,10 @@ Route::post('mitraapprovepesanan', [ApiController::class, 'mitraapprovepesanan']
 Route::post('mitrarejectpesanan', [ApiController::class, 'mitrarejectpesanan']);
 Route::post('mitrabatalkanpesanan', [ApiController::class, 'mitrabatalkanpesanan']);
 Route::post('mitrahapuspesanan', [ApiController::class, 'mitrahapuspesanan']);
+Route::post('ajukandp', [ApiController::class, 'ajukanDp']);
+Route::post('daftardp', [ApiController::class, 'daftarDp']);
+Route::get('daftardpadmin', [ApiController::class, 'daftarDpAdmin']);
+Route::post('verifikasidp', [ApiController::class, 'verifikasiDp']);
 Route::post('mitrariwayatpesanan', [ApiController::class, 'mitrariwayatpesanan']);
 Route::post('mitramyinfo', [ApiController::class, 'mitramyinfo']);
 Route::post('mitrarequesthold', [ApiController::class, 'mitrarequesthold']);
