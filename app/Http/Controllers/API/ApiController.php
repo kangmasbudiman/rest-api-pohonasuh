@@ -9527,6 +9527,9 @@ public function confirmasipembayaran(Request $request){
     }
     $req = DB::table('mitra_pesanan')->where('id', $id)->where('status', 'approved')->first();
     if (!$req) return response()->json(['value'=>'404','pesan'=>'Pesanan disetujui tidak ditemukan'], 404);
+    if (count($codes) !== (int) $req->jumlah) {
+      return response()->json(['value'=>'400','pesan'=>'Pilih tepat '.$req->jumlah.' pohon sesuai kuota pesanan'], 400);
+    }
 
     $program = $req->program_id ? ProgramMitra::find($req->program_id) : null;
     $provinsiList = $program && $program->provinsi
