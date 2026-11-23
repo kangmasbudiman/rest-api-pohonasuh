@@ -9227,7 +9227,12 @@ public function confirmasipembayaran(Request $request){
     $mitraId = (int) $request->input('mitra_id');
     $q = ProgramMitra::orderByDesc('id'); // program terbaru (id terbesar) tampil paling atas
     if ($mitraId > 0) $q->where('mitra_id', $mitraId);
-    return response()->json($q->get());
+    $rows = $q->get();
+    foreach ($rows as $r) {
+      $perp = DB::table('perpanjangan_program')->where('program_id', $r->id)->orderByDesc('id')->first();
+      $r->perpanjangan_status = $perp ? $perp->status : null;
+    }
+    return response()->json($rows);
   }
 
   public function tambahprogrammitra(Request $request){
@@ -10545,6 +10550,120 @@ public function confirmasipembayaran(Request $request){
       'updated_at'=>now(),
     ]);
     return response()->json(['value'=>'200','pesan'=>'DP '.($status==='disetujui'?'disetujui':'ditolak')]);
+  }
+
+  // ===== Perpanjangan program mitra =====
+  // Mitra mengajukan perpanjangan masa program (butuh approval admin).
+  public function ajukanPerpanjangan(Request $request){
+    $idmember = (int) $request->input('idmember');
+    $programId = (int) $request->input('program_id');
+    $baru = trim((string) $request->input('tgl_selesai_baru'));
+    $alasan = mb_substr(trim((string) $request->input('alasan')), 0, 500);
+    if (!$idmember || !$programId || $baru === '') {
+      return response()->json(['value'=>'400','pesan'=>'Program dan tanggal selesai baru wajib diisi'], 400);
+    }
+    $member = Member::find($idmember);
+    if (!$member || !$member->mitra_id) return response()->json(['value'=>'404','pesan'=>'Akun bukan mitra'], 404);
+    $p = ProgramMitra::where('id', $programId)->where('mitra_id', $member->mitra_id)->first();
+    if (!$p) return response()->json(['value'=>'404','pesan'=>'Program tidak ditemukan'], 404);
+
+    $cek = DB::table('perpanjangan_program')->where('program_id', $programId)->where('status', 'menunggu')->exists();
+    if ($cek) return response()->json(['value'=>'409','pesan'=>'Masih ada pengajuan perpanjangan yang menunggu'], 409);
+
+    $lama = $p->tgl_selesai ? date('Y-m-d', strtotime((string)$p->tgl_selesai)) : null;
+    if ($lama && strtotime($baru) <= strtotime($lama)) {
+      return response()->json(['value'=>'400','pesan'=>'Tanggal selesai baru harus setelah tanggal selesai saat ini'], 400);
+    }
+
+    DB::table('perpanjangan_program')->insert([
+      'program_id'=>$programId,
+      'mitra_id'=>$member->mitra_id,
+      'idmember'=>$idmember,
+      'tgl_selesai_lama'=>$lama,
+      'tgl_selesai_baru'=>$baru,
+      'alasan'=>$alasan ?: null,
+      'status'=>'menunggu',
+      'created_at'=>now(),
+      'updated_at'=>now(),
+    ]);
+    return response()->json(['value'=>'200','pesan'=>'Pengajuan perpanjangan dikirim, menunggu admin']);
+  }
+
+  public function daftarPerpanjanganMitra(Request $request){
+    $idmember = (int) $request->input('idmember');
+    if (!$idmember) return response()->json(['value'=>'400','pesan'=>'idmember wajib'], 400);
+    $rows = DB::table('perpanjangan_program as pp')
+      ->leftJoin('program_mitra as pm','pm.id','=','pp.program_id')
+      ->where('pp.idmember',$idmember)
+      ->select('pp.*','pm.nama as program_nama')
+      ->orderByDesc('pp.id')->get();
+    return response()->json(['data'=>$rows]);
+  }
+
+  public function daftarPerpanjanganAdmin(Request $request){
+    $k = env('ADMIN_API_KEY','');
+    if ($k === '' || !hash_equals($k, (string) $request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $rows = DB::table('perpanjangan_program as pp')
+      ->leftJoin('program_mitra as pm','pm.id','=','pp.program_id')
+      ->leftJoin('mitra as m','m.id','=','pp.mitra_id')
+      ->select('pp.*','pm.nama as program_nama','m.nama as mitra_nama')
+      ->orderByRaw("FIELD(pp.status,'menunggu','disetujui','ditolak')")
+      ->orderByDesc('pp.id')->get();
+    return response()->json(['data'=>$rows]);
+  }
+
+  public function verifikasiPerpanjangan(Request $request){
+    $k = env('ADMIN_API_KEY','');
+    if ($k === '' || !hash_equals($k, (string) $request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $id = (int) $request->input('id');
+    $status = trim((string) $request->input('status'));
+    $iduser = (int) $request->input('iduser');
+    if (!$id || !in_array($status,['disetujui','ditolak'],true)) {
+      return response()->json(['value'=>'400','pesan'=>'Data tidak valid'], 400);
+    }
+    $row = DB::table('perpanjangan_program')->where('id',$id)->first();
+    if (!$row) return response()->json(['value'=>'404','pesan'=>'Pengajuan tidak ditemukan'], 404);
+    if ($row->status !== 'menunggu') return response()->json(['value'=>'400','pesan'=>'Pengajuan sudah diproses'], 400);
+
+    DB::beginTransaction();
+    try {
+      if ($status === 'disetujui') {
+        $p = ProgramMitra::find($row->program_id);
+        if ($p) {
+          $p->tgl_selesai = $row->tgl_selesai_baru;
+          $p->durasi = $this->hitungDurasi($p->tgl_mulai, $row->tgl_selesai_baru);
+          $p->save();
+        }
+      }
+      DB::table('perpanjangan_program')->where('id',$id)->update([
+        'status'=>$status,
+        'verified_by'=>$iduser ?: null,
+        'verified_at'=>now(),
+        'updated_at'=>now(),
+      ]);
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      return response()->json(['value'=>'500','pesan'=>'Gagal memproses perpanjangan'], 500);
+    }
+    return response()->json(['value'=>'200','pesan'=>'Perpanjangan '.($status==='disetujui'?'disetujui':'ditolak')]);
+  }
+
+  // Durasi "N bulan N hari" dari dua tanggal (Y-m-d).
+  private function hitungDurasi($mulai, $selesai){
+    if (!$mulai || !$selesai) return null;
+    $a = \Carbon\Carbon::parse((string)$mulai)->startOfDay();
+    $b = \Carbon\Carbon::parse((string)$selesai)->startOfDay();
+    $months = $a->diffInMonths($b);
+    $tmp = (clone $a)->addMonths($months);
+    $days = $tmp->diffInDays($b);
+    if ($months > 0 && $days > 0) return "{$months} bulan {$days} hari";
+    if ($months > 0) return "{$months} bulan";
+    return "{$days} hari";
   }
 
   public function mitrariwayatpesanan(Request $request){
