@@ -210,6 +210,7 @@ Route::get('mitrapendingpesanan', [ApiController::class, 'mitrapendingpesanan'])
 Route::post('mitraapprovepesanan', [ApiController::class, 'mitraapprovepesanan']);
 Route::post('mitrarejectpesanan', [ApiController::class, 'mitrarejectpesanan']);
 Route::post('mitrabatalkanpesanan', [ApiController::class, 'mitrabatalkanpesanan']);
+Route::post('mitrahapuspesanan', [ApiController::class, 'mitrahapuspesanan']);
 Route::post('mitrariwayatpesanan', [ApiController::class, 'mitrariwayatpesanan']);
 Route::post('mitramyinfo', [ApiController::class, 'mitramyinfo']);
 Route::post('mitrarequesthold', [ApiController::class, 'mitrarequesthold']);

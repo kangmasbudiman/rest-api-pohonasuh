@@ -10405,6 +10405,66 @@ public function confirmasipembayaran(Request $request){
   }
 
   // Mitra: riwayat pemesanan (filter status/q + pagination) — scoped ke mitra sendiri
+  // Mitra: hapus (soft-delete) pesanan sendiri — status 'dihapus'.
+  // Pohon reserved ikut dilepaskan supaya bisa dipesan kembali.
+  public function mitrahapuspesanan(Request $request){
+    $idmember = (int) $request->input('idmember');
+    $id = (int) $request->input('id');
+    if (!$idmember || !$id) return response()->json(['value'=>'400','pesan'=>'idmember dan id wajib'], 400);
+
+    $req = DB::table('mitra_pesanan')->where('id', $id)->where('idmember', $idmember)->first();
+    if (!$req) return response()->json(['value'=>'404','pesan'=>'Pesanan tidak ditemukan'], 404);
+    if ($req->status === 'dihapus') return response()->json(['value'=>'400','pesan'=>'Pesanan sudah dihapus'], 400);
+
+    DB::beginTransaction();
+    try {
+      $released = 0;
+      if ($req->status === 'approved' && (int) $req->jumlah > 0) {
+        $holds = DB::table('mitra_hold_request')
+          ->where('idpesanan', $req->id)
+          ->where('status', 'approved')
+          ->get();
+        if ($holds->count() < (int) $req->jumlah) {
+          $sisa = (int) $req->jumlah - $holds->count();
+          $oldQuery = DB::table('mitra_hold_request')
+            ->where('mitra_id', $req->mitra_id)
+            ->where('idmember', $idmember)
+            ->whereNull('idpesanan')
+            ->where('status', 'approved');
+          if (!empty($req->program_id)) $oldQuery->where('program_id', $req->program_id);
+          else $oldQuery->whereNull('program_id');
+          $holds = $holds->concat($oldQuery->orderBy('id')->limit($sisa)->get());
+        }
+        foreach ($holds as $h) {
+          $released += DB::table('data_pohon')
+            ->where('idpohon', $h->idpohon)
+            ->where('mitra_id', $req->mitra_id)
+            ->where('adopted', 'reserved')
+            ->update([
+              'adopted' => 'available',
+              'mitra_id' => null,
+              'reserved_name' => null,
+              'reserved_at' => null,
+              'reserved_admin' => 0,
+              'tgl_pesan' => null,
+            ]);
+        }
+        DB::table('mitra_hold_request')->whereIn('id', $holds->pluck('id'))
+          ->update(['status' => 'cancelled', 'updated_at' => now()]);
+      }
+      DB::table('mitra_pesanan')->where('id', $id)->update([
+        'status' => 'dihapus',
+        'updated_at' => now(),
+      ]);
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      Log::error('mitrahapuspesanan gagal: '.$e->getMessage());
+      return response()->json(['value'=>'500','pesan'=>'Gagal menghapus pesanan'], 500);
+    }
+    return response()->json(['value'=>'200','pesan'=>'Pesanan dihapus. '.$released.' pohon dikembalikan ke pool.']);
+  }
+
   public function mitrariwayatpesanan(Request $request){
     $idMember = (int) $request->input('idmember');
     $m = Member::find($idMember);
@@ -10424,6 +10484,7 @@ public function confirmasipembayaran(Request $request){
       'approved' => (clone $base)->where('status', 'approved')->count(),
       'rejected' => (clone $base)->where('status', 'rejected')->count(),
       'cancelled' => (clone $base)->where('status', 'cancelled')->count(),
+      'dihapus' => (clone $base)->where('status', 'dihapus')->count(),
     ];
     $summary['all'] = array_sum($summary);
 
@@ -10431,7 +10492,7 @@ public function confirmasipembayaran(Request $request){
       ->leftJoin('program_mitra as pm', 'pm.id', '=', 'p.program_id')
       ->where('p.mitra_id', $mitraId);
 
-    if (in_array($status, ['pending', 'approved', 'rejected', 'cancelled'], true)) {
+    if (in_array($status, ['pending', 'approved', 'rejected', 'cancelled', 'dihapus'], true)) {
       $query->where('p.status', $status);
     }
     if ($q !== '') {
