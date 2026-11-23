@@ -8885,7 +8885,12 @@ public function confirmasipembayaran(Request $request){
       if ($kode === '' || $nama === '') { $errors[] = ['idpohon'=>$kode,'pesan'=>'Kode/nama wajib']; continue; }
       $p = Pohon::where('idpohon', $kode)->first();
       if (!$p) { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon tidak ditemukan']; continue; }
-      if ((int)($p->mitra_id ?? 0) !== $mitraId) {
+      $punyaHold = DB::table('mitra_hold_request')
+        ->where('idpohon', $kode)
+        ->where('mitra_id', $mitraId)
+        ->where('status', 'approved')
+        ->exists();
+      if ((int)($p->mitra_id ?? 0) !== $mitraId && !$punyaHold) {
         $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon bukan milik mitra ini']; continue;
       }
       if ($p->adopted === 'adopted') {
@@ -8951,6 +8956,20 @@ public function confirmasipembayaran(Request $request){
         $p->adopted = 'reserved';
         $p->mitra_id = $mitraId;
         $p->update();
+      }
+      // Kurangi sisa pohon pada pesanan asal.
+      $perOrder = [];
+      foreach ($valid as $v) {
+        $hold = DB::table('mitra_hold_request')
+          ->where('idpohon', $v['pohon']->idpohon)->where('mitra_id', $mitraId)
+          ->where('status', 'approved')->orderByDesc('id')->first();
+        if ($hold && $hold->idpesanan) {
+          $pid = (int) $hold->idpesanan;
+          $perOrder[$pid] = ($perOrder[$pid] ?? 0) + 1;
+        }
+      }
+      foreach ($perOrder as $pid => $n) {
+        DB::table('mitra_pesanan')->where('id', $pid)->increment('jumlah_teradopsi', $n);
       }
       $this->isiCertnum($invoice);
       DB::commit();
@@ -11006,7 +11025,14 @@ public function confirmasipembayaran(Request $request){
       if ($kode === '' || $nama === '') { $errors[] = ['idpohon'=>$kode,'pesan'=>'Kode/nama wajib']; continue; }
       $p = Pohon::where('idpohon', $kode)->first();
       if (!$p) { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon tidak ditemukan']; continue; }
-      if ((int)($p->mitra_id ?? 0) !== $mitraId) { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon bukan milik Anda']; continue; }
+      // Pohon di form berasal dari hold approved mitra — kolom data_pohon.mitra_id
+      // bisa saja masih kosong, jadi validasi juga menerima kepemilikan via hold.
+      $punyaHold = DB::table('mitra_hold_request')
+        ->where('idpohon', $kode)
+        ->where('mitra_id', $mitraId)
+        ->where('status', 'approved')
+        ->exists();
+      if ((int)($p->mitra_id ?? 0) !== $mitraId && !$punyaHold) { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon bukan milik Anda']; continue; }
       if ($p->adopted === 'adopted') { $errors[] = ['idpohon'=>$kode,'pesan'=>'Pohon sudah diadopsi']; continue; }
       $email = mb_substr(strtolower(trim((string)($it['email'] ?? ''))), 0, 150);
       if ($email === '' || !filter_var($email, FILTER_VALIDATE_EMAIL)) {
@@ -11063,6 +11089,30 @@ public function confirmasipembayaran(Request $request){
         $adopsi->program_id = $programId;
         $adopsi->tgl_exp = date('Y-m-d', strtotime('+'.$v['dur'].' year', strtotime($v['tgl_adopt'])));
         $adopsi->save();
+        // Tandai pohon sebagai dipesan mitra (sama seperti alur admin).
+        $p->adopted = 'reserved';
+        $p->mitra_id = $mitraId;
+        $p->reserved_name = $mitra->nama;
+        $p->reserved_at = now();
+        $p->tgl_pesan = $today;
+        $p->update();
+      }
+      // Sisa pohon pada pesanan asal = jumlah - jumlah_teradopsi.
+      $perOrder = [];
+      foreach ($valid as $v) {
+        $hold = DB::table('mitra_hold_request')
+          ->where('idpohon', $v['pohon']->idpohon)
+          ->where('mitra_id', $mitraId)
+          ->where('status', 'approved')
+          ->orderByDesc('id')
+          ->first();
+        if ($hold && $hold->idpesanan) {
+          $pid = (int) $hold->idpesanan;
+          $perOrder[$pid] = ($perOrder[$pid] ?? 0) + 1;
+        }
+      }
+      foreach ($perOrder as $pid => $n) {
+        DB::table('mitra_pesanan')->where('id', $pid)->increment('jumlah_teradopsi', $n);
       }
       DB::commit();
     } catch (\Throwable $e) {
