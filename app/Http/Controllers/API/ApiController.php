@@ -159,6 +159,7 @@ class ApiController extends Controller
         } else {
             $codes = DB::table('mitra_hold_request')
                 ->where('idpesanan', $r->id)
+                ->where('status', 'approved')
                 ->pluck('idpohon')
                 ->map(fn($v) => strtoupper((string)$v))
                 ->filter()
