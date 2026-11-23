@@ -9512,6 +9512,30 @@ public function confirmasipembayaran(Request $request){
     ]);
   }
 
+  // Admin: daftar pohon tersedia di provinsi program (dipilih saat alokasi).
+  public function pohonTersediaAdmin(Request $request){
+    $k = env('ADMIN_API_KEY','');
+    if ($k === '' || !hash_equals($k, (string) $request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $programId = (int) $request->input('program_id');
+    $desa = trim((string) $request->input('desa'));
+    $program = $programId ? ProgramMitra::find($programId) : null;
+    $provinsiList = $program && $program->provinsi
+      ? array_values(array_filter(array_map('trim', explode(',', (string) $program->provinsi))))
+      : [];
+    $query = Pohon::where('adopted', 'available')
+      ->where('beku', '!=', 'yes')
+      ->whereNull('mitra_id')
+      ->where('reserved_admin', 0);
+    if ($desa !== '') $query->where('desa', $desa);
+    if (count($provinsiList) > 0) {
+      $query->whereIn('desa', Desa::whereIn('provinsi', $provinsiList)->pluck('nama')->all());
+    }
+    $rows = $query->orderBy('id')->limit(300)->get();
+    return response()->json(['data'=>$rows, 'provinsi'=>$provinsiList]);
+  }
+
   // Admin approve → alokasi N pohon tersedia (dari desa yang diminta atau semua) ke mitra.
   public function mitraapprovepesanan(Request $request){
     $reqId = (int) $request->input('id');
@@ -9525,11 +9549,48 @@ public function confirmasipembayaran(Request $request){
       return response()->json(['value'=>'404','pesan'=>'Mitra tidak ditemukan'], 404);
     }
 
+    // Batasi alokasi ke provinsi yang diminta mitra pada program (bisa lebih dari satu).
+    $program = $req->program_id ? ProgramMitra::find($req->program_id) : null;
+    $provinsiList = $program && $program->provinsi
+      ? array_values(array_filter(array_map('trim', explode(',', (string) $program->provinsi))))
+      : [];
+    $desaDiProvinsi = count($provinsiList) > 0
+      ? Desa::whereIn('provinsi', $provinsiList)->pluck('nama')->all()
+      : [];
+
+    // Kode pohon yang dipilih admin saat "Setujui & Alokasikan" (comma separated).
+    $pilihanAdminRaw = $request->input('pohon_pilihan_admin');
+    $kodeAdmin = [];
+    if (is_string($pilihanAdminRaw) && trim($pilihanAdminRaw) !== '') {
+      $kodeAdmin = array_values(array_unique(array_map(fn($v) => strtoupper(trim((string)$v)), explode(',', $pilihanAdminRaw))));
+    } elseif (is_array($pilihanAdminRaw)) {
+      $kodeAdmin = array_values(array_unique(array_map(fn($v) => strtoupper(trim((string)$v)), $pilihanAdminRaw)));
+    }
+
     // Pohon pilihan dari mitra → alokasikan persis pohon tersebut (cek ulang saat approve).
     $pilihan = !empty($req->pohon_pilihan) ? json_decode((string)$req->pohon_pilihan, true) : [];
     if (!is_array($pilihan)) $pilihan = [];
 
-    if (count($pilihan) > 0) {
+    if (count($kodeAdmin) > 0) {
+      // Admin memilih langsung pohon dari daftar provinsi program.
+      $rows = Pohon::whereIn('idpohon', $kodeAdmin)
+        ->where('adopted', 'available')
+        ->where('beku', '!=', 'yes')
+        ->whereNull('mitra_id')
+        ->where('reserved_admin', 0)
+        ->when(count($desaDiProvinsi) > 0, fn($q) => $q->whereIn('desa', $desaDiProvinsi))
+        ->orderBy('id')
+        ->get()
+        ->take((int) $req->jumlah);
+      if ($rows->count() < (int) $req->jumlah) {
+        return response()->json(
+          ['value'=>'409','pesan'=>'Pohon pilihan admin tidak cukup / tidak sesuai provinsi program (butuh '.$req->jumlah.', cocok '.$rows->count().')'],
+          409,
+        );
+      }
+      $dilewati = 0;
+      $allocatedLabel = 'pohon pilihan admin disetujui';
+    } elseif (count($pilihan) > 0) {
       $codes = array_values(array_unique(array_map(function ($v) {
         return strtoupper(trim((string)$v));
       }, $pilihan)));
@@ -9546,7 +9607,7 @@ public function confirmasipembayaran(Request $request){
       }
       $allocatedLabel = 'pohon pilihan disetujui';
     } else {
-      // cari pohon tersedia di desa diminta (atau semua desa)
+      // cari pohon tersedia di desa diminta DAN di provinsi program
       $query = Pohon::where('adopted', 'available')
         ->where('beku', '!=', 'yes')
         ->whereNull('mitra_id')
@@ -9554,10 +9615,14 @@ public function confirmasipembayaran(Request $request){
       if ($req->desa) {
         $query->where('desa', $req->desa);
       }
+      if (count($desaDiProvinsi) > 0) {
+        $query->whereIn('desa', $desaDiProvinsi);
+      }
       $rows = $query->orderBy('id')->limit((int)$req->jumlah)->get();
       if ($rows->count() < (int)$req->jumlah) {
+        $infoProvinsi = count($provinsiList) > 0 ? ' di provinsi ' . implode(', ', $provinsiList) : '';
         return response()->json(
-          ['value'=>'409','pesan'=>'Pohon tersedia tidak cukup (diminta '.$req->jumlah.', tersedia '.$rows->count().')'],
+          ['value'=>'409','pesan'=>'Pohon tersedia tidak cukup'.$infoProvinsi.' (diminta '.$req->jumlah.', tersedia '.$rows->count().')'],
           409,
         );
       }
