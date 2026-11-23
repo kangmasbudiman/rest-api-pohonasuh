@@ -209,6 +209,7 @@ Route::post('mitramyinvoice', [ApiController::class, 'mitramyinvoice']);
 Route::get('mitrapendingpesanan', [ApiController::class, 'mitrapendingpesanan']);
 Route::post('mitraapprovepesanan', [ApiController::class, 'mitraapprovepesanan']);
 Route::get('pohontersediaadmin', [ApiController::class, 'pohonTersediaAdmin']);
+Route::post('gantialokasipohon', [ApiController::class, 'gantiAlokasiPohon']);
 Route::post('mitrarejectpesanan', [ApiController::class, 'mitrarejectpesanan']);
 Route::post('mitrabatalkanpesanan', [ApiController::class, 'mitrabatalkanpesanan']);
 Route::post('mitrahapuspesanan', [ApiController::class, 'mitrahapuspesanan']);

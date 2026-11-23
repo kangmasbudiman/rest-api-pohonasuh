@@ -9512,6 +9512,87 @@ public function confirmasipembayaran(Request $request){
     ]);
   }
 
+  // Admin: ganti alokasi pohon untuk pesanan yang sudah disetujui.
+  public function gantiAlokasiPohon(Request $request){
+    $id = (int) $request->input('id');
+    $raw = $request->input('kode_pohon');
+    $codes = [];
+    if (is_string($raw) && trim($raw) !== '') {
+      $codes = array_values(array_unique(array_map(fn($v) => strtoupper(trim((string)$v)), explode(',', $raw))));
+    } elseif (is_array($raw)) {
+      $codes = array_values(array_unique(array_map(fn($v) => strtoupper(trim((string)$v)), $raw)));
+    }
+    if (!$id || count($codes) === 0) {
+      return response()->json(['value'=>'400','pesan'=>'Pilih minimal satu pohon'], 400);
+    }
+    $req = DB::table('mitra_pesanan')->where('id', $id)->where('status', 'approved')->first();
+    if (!$req) return response()->json(['value'=>'404','pesan'=>'Pesanan disetujui tidak ditemukan'], 404);
+
+    $program = $req->program_id ? ProgramMitra::find($req->program_id) : null;
+    $provinsiList = $program && $program->provinsi
+      ? array_values(array_filter(array_map('trim', explode(',', (string) $program->provinsi))))
+      : [];
+    $query = Pohon::whereIn('idpohon', $codes)
+      ->where('adopted', 'available')
+      ->where('beku', '!=', 'yes')
+      ->whereNull('mitra_id')
+      ->where('reserved_admin', 0);
+    if (count($provinsiList) > 0) {
+      $query->whereIn('desa', Desa::whereIn('provinsi', $provinsiList)->pluck('nama')->all());
+    }
+    $rows = $query->orderBy('id')->get();
+    if ($rows->count() < count($codes)) {
+      return response()->json(['value'=>'409','pesan'=>'Sebagian pohon tidak tersedia / di luar provinsi program'], 409);
+    }
+
+    $mitra = Mitra::find($req->mitra_id);
+    $adminId = (int) $request->input('iduser', 0);
+    DB::beginTransaction();
+    try {
+      $oldHolds = DB::table('mitra_hold_request')->where('idpesanan', $id)->where('status', 'approved')->get();
+      foreach ($oldHolds as $h) {
+        DB::table('data_pohon')
+          ->where('idpohon', $h->idpohon)
+          ->where('mitra_id', $req->mitra_id)
+          ->where('adopted', 'reserved')
+          ->update([
+            'adopted' => 'available', 'mitra_id' => null, 'reserved_name' => null,
+            'reserved_at' => null, 'reserved_admin' => 0, 'tgl_pesan' => null,
+          ]);
+      }
+      if ($oldHolds->count() > 0) {
+        DB::table('mitra_hold_request')->whereIn('id', $oldHolds->pluck('id'))
+          ->update(['status' => 'cancelled', 'updated_at' => now()]);
+      }
+      foreach ($rows as $p) {
+        $p->adopted = 'reserved';
+        $p->mitra_id = $req->mitra_id;
+        $p->reserved_name = $mitra ? $mitra->nama : null;
+        $p->reserved_at = now();
+        $p->tgl_pesan = date('Y-m-d');
+        $p->update();
+        DB::table('mitra_hold_request')->insert([
+          'mitra_id' => $req->mitra_id,
+          'idmember' => $req->idmember,
+          'idpesanan' => $req->id,
+          'idpohon' => $p->idpohon,
+          'program_id' => $req->program_id,
+          'status' => 'approved',
+          'approved_by' => $adminId,
+          'approved_at' => now(),
+          'created_at' => now(),
+          'updated_at' => now(),
+        ]);
+      }
+      DB::table('mitra_pesanan')->where('id', $id)->update(['updated_at' => now()]);
+      DB::commit();
+    } catch (\Throwable $e) {
+      DB::rollBack();
+      return response()->json(['value'=>'500','pesan'=>'Gagal mengganti alokasi pohon'], 500);
+    }
+    return response()->json(['value'=>'200','pesan'=>count($rows).' pohon dialokasikan ulang']);
+  }
+
   // Admin: daftar pohon tersedia di provinsi program (dipilih saat alokasi).
   public function pohonTersediaAdmin(Request $request){
     $k = env('ADMIN_API_KEY','');
