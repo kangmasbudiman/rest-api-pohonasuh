@@ -214,6 +214,7 @@ Route::post('mitrarejectpesanan', [ApiController::class, 'mitrarejectpesanan']);
 Route::post('mitrabatalkanpesanan', [ApiController::class, 'mitrabatalkanpesanan']);
 Route::post('mitrahapuspesanan', [ApiController::class, 'mitrahapuspesanan']);
 Route::post('ajukandp', [ApiController::class, 'ajukanDp']);
+Route::post('bayardponline', [ApiController::class, 'bayardponline']);
 Route::post('daftardp', [ApiController::class, 'daftarDp']);
 Route::get('daftardpadmin', [ApiController::class, 'daftarDpAdmin']);
 Route::post('verifikasidp', [ApiController::class, 'verifikasiDp']);

@@ -2599,6 +2599,30 @@ public function updateduration(Request $request){
       $extra = is_array($cf) ? $cf : [];
     }
 
+    // DP online: verifikasi otomatis pembayaran DP. Sengaja dikembalikan lebih
+    // awal — TIDAK menyentuh confirmation/data_adopsi/certnum (sertifikat
+    // hanya terbit setelah pelunasan terverifikasi admin).
+    $idPembayaran = !empty($extra['idpembayaran']) ? (int)$extra['idpembayaran'] : 0;
+    $dpRow = null;
+    if ($idPembayaran > 0) {
+      $dpRow = DB::table('pembayaran')->where('id', $idPembayaran)->where('jenis', 'DP')->first();
+    }
+    if (!$dpRow && !empty($d['id'])) {
+      $dpRow = DB::table('pembayaran')->where('idinvoice_mayar', $d['id'])->where('jenis', 'DP')->first();
+    }
+    if ($dpRow) {
+      if ($dpRow->status !== 'menunggu') {
+        return response()->json(['ok'=>true,'dp'=>$dpRow->id,'status'=>$dpRow->status,'already'=>true]);
+      }
+      DB::table('pembayaran')->where('id', $dpRow->id)->update([
+        'status'=>'disetujui',
+        'payment_ref'=>($d['id'] ?? $dpRow->payment_ref),
+        'verified_at'=>now(),
+        'updated_at'=>now(),
+      ]);
+      return response()->json(['ok'=>true,'dp'=>$dpRow->id,'status'=>'disetujui']);
+    }
+
     $conf = null;
     if (!empty($extra['idconfirmation'])) {
       $conf = Confirmasi::find($extra['idconfirmation']);
@@ -10664,6 +10688,94 @@ public function confirmasipembayaran(Request $request){
   }
 
   // ===== Pembayaran DP mitra =====
+  // Mitra membuat invoice Mayar untuk DP online. Idempoten: link lama
+  // dikembalikan bila DP untuk pesanan ini masih menunggu.
+  public function bayardponline(Request $request){
+    $apikey = trim((string)env('MAYAR_API_KEY'));
+    if ($apikey === '') {
+      return response()->json(['value'=>'500','pesan'=>'MAYAR_API_KEY belum dikonfigurasi'], 500);
+    }
+    $idmember = (int) $request->input('idmember');
+    $id = (int) $request->input('id');
+    $jumlah = (float) $request->input('jumlah');
+    $invoice = trim((string) $request->input('invoice'));
+    if (!$idmember || !$id || $jumlah <= 0) {
+      return response()->json(['value'=>'400','pesan'=>'Pesanan dan nominal DP wajib diisi'], 400);
+    }
+    $req = DB::table('mitra_pesanan')->where('id', $id)->where('idmember', $idmember)->first();
+    if (!$req) return response()->json(['value'=>'404','pesan'=>'Pesanan tidak ditemukan'], 404);
+    if ($req->status === 'dihapus') return response()->json(['value'=>'400','pesan'=>'Pesanan sudah dihapus'], 400);
+
+    $existing = DB::table('pembayaran')
+      ->where('pesanan_id', $id)->where('jenis', 'DP')->where('metode', 'online')
+      ->where('status', 'menunggu')->whereNotNull('link_invoice')
+      ->orderByDesc('id')->first();
+    if ($existing) {
+      return response()->json(['value'=>'200','id'=>$existing->id,'link'=>$existing->link_invoice,'pesan'=>'Gunakan tagihan DP yang sudah dibuat']);
+    }
+
+    $member = Member::find($idmember);
+    $mitra = Mitra::find($req->mitra_id);
+    $ref = 'DP-' . time() . '-' . strtoupper(substr(bin2hex(random_bytes(3)), 0, 6));
+    $rowId = DB::table('pembayaran')->insertGetId([
+      'pesanan_id'=>$id,
+      'mitra_id'=>$req->mitra_id,
+      'idmember'=>$idmember,
+      'jenis'=>'DP',
+      'jumlah'=>$jumlah,
+      'status'=>'menunggu',
+      'metode'=>'online',
+      'payment_ref'=>$ref,
+      'confirmasi_id'=>null,
+      'created_at'=>now(),
+      'updated_at'=>now(),
+    ]);
+
+    $ttl = max(1, (int)env('MAYAR_INVOICE_TTL_HOURS', 24));
+    $expiredAt = gmdate('Y-m-d\TH:i:s\Z', time() + $ttl * 3600);
+    try {
+      $resp = Http::withToken($apikey)->timeout(30)
+        ->post(rtrim((string)env('MAYAR_BASE_URL', 'https://api.mayar.id/hl/v2'), '/') . '/invoices/create', [
+          'name' => $mitra ? $mitra->nama : (string)($member->name ?? 'Mitra'),
+          'email' => (string)($member->emaile ?? ''),
+          'mobile' => $this->mayarMobile($member ? $member->hp : null),
+          'description' => 'Pohon Asuh - DP Pesanan #' . $id . ($invoice !== '' ? ' (' . $invoice . ')' : ''),
+          'expiredAt' => $expiredAt,
+          'items' => [[
+            'quantity' => 1,
+            'rate' => (int)$jumlah,
+            'description' => 'Uang Muka (DP) Pesanan Pohon #' . $id,
+          ]],
+          'extraData' => [
+            'idpembayaran' => (string)$rowId,
+            'jenis' => 'DP',
+            'payment_ref' => $ref,
+          ],
+        ]);
+    } catch (\Throwable $e) {
+      DB::table('pembayaran')->where('id', $rowId)->update(['status'=>'gagal','updated_at'=>now()]);
+      Log::error('bayardponline: gagal terhubung Mayar', ['error'=>$e->getMessage()]);
+      return response()->json(['value'=>'502','pesan'=>'Gagal terhubung ke Mayar'], 502);
+    }
+    if (!$resp->successful()) {
+      DB::table('pembayaran')->where('id', $rowId)->update(['status'=>'gagal','updated_at'=>now()]);
+      return response()->json(['value'=>'502','pesan'=>'Mayar menolak pembuatan tagihan DP. Coba lagi.'], 502);
+    }
+    $data = $resp->json('data') ?? [];
+    $link = $data['link'] ?? null;
+    if (!$link) {
+      DB::table('pembayaran')->where('id', $rowId)->update(['status'=>'gagal','updated_at'=>now()]);
+      return response()->json(['value'=>'502','pesan'=>'Respons Mayar tidak memuat link'], 502);
+    }
+    DB::table('pembayaran')->where('id', $rowId)->update([
+      'link_invoice' => $link,
+      'idinvoice_mayar' => $data['id'] ?? null,
+      'payment_ref' => $data['id'] ?? $ref,
+      'updated_at' => now(),
+    ]);
+    return response()->json(['value'=>'200','id'=>$rowId,'link'=>$link,'pesan'=>'Tagihan DP dibuat']);
+  }
+
   // Mitra mengajukan DP untuk pesanan — status awal "menunggu".
   public function ajukanDp(Request $request){
     $idmember = (int) $request->input('idmember');
