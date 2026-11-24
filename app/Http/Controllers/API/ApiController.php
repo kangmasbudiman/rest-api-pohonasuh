@@ -10803,6 +10803,20 @@ public function confirmasipembayaran(Request $request){
       'created_at'=>now(),
       'updated_at'=>now(),
     ]);
+
+    // Notifikasi ke semua admin (lonceng header).
+    $mitra = Mitra::find($order->mitra_id);
+    $isi = 'Pengajuan DP baru dari ' . ($mitra ? $mitra->nama : 'mitra') . ' sebesar Rp ' . number_format($jumlah, 0, ',', '.') . ' untuk pesanan #' . $id;
+    foreach (Member::where('admin', 1)->get() as $admin) {
+      $pesan = new Pesan();
+      $pesan->idmember = $admin->id;
+      $pesan->pesan = $isi;
+      $pesan->pesan_en = 'New DP request for order #' . $id;
+      $pesan->link = '/admin/verifikasi-dp';
+      $pesan->status = 'noread';
+      $pesan->save();
+    }
+
     return response()->json(['value'=>'200','pesan'=>'DP diajukan, menunggu verifikasi admin']);
   }
 
@@ -11034,6 +11048,15 @@ public function confirmasipembayaran(Request $request){
       $dp = DB::table('pembayaran')->where('pesanan_id', $r->id)->where('jenis', 'DP')->orderByDesc('id')->first();
       $r->dp_status = $dp ? $dp->status : null;
       $r->dp_jumlah = $dp ? (float) $dp->jumlah : null;
+      $adoptedCodes = DB::table('data_adopsi as a')
+        ->join('mitra_hold_request as h', 'h.idpohon', '=', 'a.idpohon')
+        ->where('h.idpesanan', $r->id)
+        ->where('a.mitra_id', $r->mitra_id)
+        ->distinct()
+        ->pluck('a.idpohon')
+        ->all();
+      $r->adopted_count = count($adoptedCodes);
+      $r->adopted_codes = $adoptedCodes;
     }
 
     return response()->json(['data' => $rows, 'total' => $total, 'summary' => $summary, 'page' => $page, 'per_page' => $perPage]);
