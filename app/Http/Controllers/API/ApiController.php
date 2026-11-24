@@ -10726,6 +10726,7 @@ public function confirmasipembayaran(Request $request){
       'status'=>'menunggu',
       'metode'=>'online',
       'payment_ref'=>$ref,
+      'invoice'=>$invoice !== '' ? $invoice : null,
       'confirmasi_id'=>null,
       'created_at'=>now(),
       'updated_at'=>now(),
@@ -10782,6 +10783,7 @@ public function confirmasipembayaran(Request $request){
     $id = (int) $request->input('id');
     $jumlah = (float) $request->input('jumlah');
     $bukti = trim((string)$request->input('bukti'));
+    $invoice = trim((string)$request->input('invoice'));
     if (!$idmember || !$id || $jumlah <= 0 || $bukti === '') {
       return response()->json(['value'=>'400','pesan'=>'Pesanan, jumlah, dan bukti transfer wajib diisi'], 400);
     }
@@ -10797,6 +10799,7 @@ public function confirmasipembayaran(Request $request){
       'jumlah'=>$jumlah,
       'bukti'=>$bukti,
       'status'=>'menunggu',
+      'invoice'=>$invoice !== '' ? $invoice : null,
       'created_at'=>now(),
       'updated_at'=>now(),
     ]);
