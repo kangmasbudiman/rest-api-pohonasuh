@@ -9275,6 +9275,12 @@ public function confirmasipembayaran(Request $request){
     foreach ($rows as $r) {
       $perp = DB::table('perpanjangan_program')->where('program_id', $r->id)->orderByDesc('id')->first();
       $r->perpanjangan_status = $perp ? $perp->status : null;
+      // sisa pohon = sum(jumlah - jumlah_teradopsi) dari pesanan program ini
+      $sisa = DB::table('mitra_pesanan')
+        ->where('program_id', $r->id)
+        ->selectRaw('COALESCE(SUM(jumlah - COALESCE(jumlah_teradopsi,0)),0) AS s')
+        ->value('s');
+      $r->sisa_pohon = (int) $sisa;
     }
     return response()->json($rows);
   }
