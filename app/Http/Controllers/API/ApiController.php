@@ -11114,6 +11114,10 @@ public function confirmasipembayaran(Request $request){
         ->selectRaw('COUNT(DISTINCT idpohon) AS c')
         ->value('c');
       if ($jmlUnik <= 0) $jmlUnik = (int)$r->jml_pohon;
+      $programNama = DB::table('data_adopsi as a')
+        ->leftJoin('program_mitra as pm', 'pm.id', '=', 'a.program_id')
+        ->where('a.invoice', $r->invoice)
+        ->value('pm.nama');
       $items[] = [
         'id' => (int)$r->id,
         'invoice' => (string)$r->invoice,
@@ -11126,6 +11130,7 @@ public function confirmasipembayaran(Request $request){
         'link_invoice' => isset($r->link_invoice) ? (string)$r->link_invoice : '',
         'bukti' => isset($r->foto) ? (string)$r->foto : '',
         'created_at' => isset($r->created_at) && $r->created_at ? \Illuminate\Support\Carbon::parse($r->created_at)->toDateString() : null,
+        'program_nama' => $programNama ? (string)$programNama : null,
       ];
     }
 
