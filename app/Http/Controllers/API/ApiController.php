@@ -10826,11 +10826,22 @@ public function confirmasipembayaran(Request $request){
     if ($k === '' || !hash_equals($k, (string) $request->header('X-Admin-Key',''))) {
       return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
     }
-    $rows = DB::table('pembayaran as p')
+    $q = trim((string)$request->input('q', $request->query('q', '')));
+    $query = DB::table('pembayaran as p')
       ->leftJoin('mitra_pesanan as mp','mp.id','=','p.pesanan_id')
       ->leftJoin('program_mitra as pm','pm.id','=','mp.program_id')
       ->leftJoin('mitra as m','m.id','=','p.mitra_id')
-      ->select('p.*','pm.nama as program_nama','m.nama as mitra_nama')
+      ->select('p.*','pm.nama as program_nama','m.nama as mitra_nama');
+    if ($q !== '') {
+      $query->where(function ($w) use ($q) {
+        $w->where('m.nama', 'like', "%{$q}%")
+          ->orWhere('pm.nama', 'like', "%{$q}%")
+          ->orWhere('p.invoice', 'like', "%{$q}%")
+          ->orWhere('p.pesanan_id', 'like', "%{$q}%")
+          ->orWhere('p.id', 'like', "%{$q}%");
+      });
+    }
+    $rows = $query
       ->orderByRaw("FIELD(p.status,'menunggu','disetujui','ditolak')")
       ->orderByDesc('p.id')
       ->get();
