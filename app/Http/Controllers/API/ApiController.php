@@ -10734,6 +10734,54 @@ public function confirmasipembayaran(Request $request){
   // Mitra membuat invoice Mayar untuk DP online. Idempoten: link lama
   // dikembalikan bila DP untuk pesanan ini masih menunggu.
   // ===== Audit log =====
+  // Ubah endpoint teknis menjadi kalimat aktivitas yang mudah dibaca.
+  private function labelAksiAudit($endpoint, $method = 'POST')
+  {
+    $map = [
+      'tambahprogrammitra' => 'Menambah program mitra',
+      'editprogrammitra' => 'Mengubah program mitra',
+      'hapusprogrammitra' => 'Menghapus program mitra',
+      'mitrarequesorder' => 'Mengajukan pemesanan pohon',
+      'mitraapprovepesanan' => 'Menyetujui & mengalokasikan pesanan',
+      'mitrarejectpesanan' => 'Menolak pesanan mitra',
+      'mitrabatalkanpesanan' => 'Membatalkan pesanan',
+      'hapuspesanmitra' => 'Menghapus pesanan',
+      'inputadopsimitraself' => 'Input data pengadopsi',
+      'inputadopsimitra' => 'Input data pengadopsi',
+      'verifikasiadopsimitra' => 'Memverifikasi adopsi mitra',
+      'ajukandp' => 'Mengajukan pembayaran DP',
+      'bayardponline' => 'Membuat tagihan DP online',
+      'verifikasidp' => 'Memverifikasi pembayaran DP',
+      'ajukanperpanjangan' => 'Mengajukan perpanjangan program',
+      'verifikasiperpanjangan' => 'Memverifikasi perpanjangan program',
+      'tambahprovinsi' => 'Menambah data provinsi',
+      'editprovinsi' => 'Mengubah data provinsi',
+      'hapusprovinsi' => 'Menghapus data provinsi',
+      'hapustransaksitidakjadi' => 'Membatalkan transaksi/invoice',
+      'uploadbuktitransfer' => 'Unggah bukti transfer',
+      'createinvoice' => 'Membuat tagihan online',
+      'loginuser' => 'Login ke sistem',
+      'register' => 'Registrasi akun baru',
+      'tambahlokasi' => 'Menambah data lokasi',
+      'editlokasi' => 'Mengubah data lokasi',
+      'hapuslokasi' => 'Menghapus data lokasi',
+      'tambahmitra' => 'Menambah data mitra',
+      'editmitra' => 'Mengubah data mitra',
+      'hapusmitra' => 'Menghapus data mitra',
+      'verivication' => 'Memverifikasi pembayaran adopsi',
+      'batalverivication' => 'Membatalkan verifikasi adopsi',
+    ];
+    $ep = strtolower((string) $endpoint);
+    foreach ($map as $key => $label) {
+      if (str_contains($ep, $key)) return $label;
+    }
+    if (str_contains($ep, 'tambah')) return 'Menambah data';
+    if (str_contains($ep, 'edit') || str_contains($ep, 'update')) return 'Mengubah data';
+    if (str_contains($ep, 'hapus') || str_contains($ep, 'delete')) return 'Menghapus data';
+    if (str_contains($ep, 'verifikasi') || str_contains($ep, 'approve')) return 'Memverifikasi data';
+    return strtoupper((string) $method) === 'DELETE' ? 'Menghapus data' : 'Menyimpan perubahan';
+  }
+
   public function auditlog(Request $request){
     $k = env('ADMIN_API_KEY','');
     if ($k === '' || !hash_equals($k, (string) $request->header('X-Admin-Key',''))) {
@@ -10752,9 +10800,14 @@ public function confirmasipembayaran(Request $request){
     }
     if ($role !== '') $query->where('role', $role);
     $rows = $query->paginate($perPage);
+    $items = array_map(function ($r) {
+      $arr = (array) $r;
+      $arr['aksi'] = $this->labelAksiAudit($arr['endpoint'] ?? '', $arr['method'] ?? 'POST');
+      return $arr;
+    }, $rows->items());
     return response()->json([
       'value' => '200',
-      'data' => $rows->items(),
+      'data' => $items,
       'total' => $rows->total(),
       'page' => $rows->currentPage(),
       'per_page' => $perPage,
@@ -10765,7 +10818,12 @@ public function confirmasipembayaran(Request $request){
     $idmember = (int) $request->input('idmember');
     if (!$idmember) return response()->json(['value'=>'400','pesan'=>'idmember wajib'], 400);
     $rows = DB::table('audit_logs')->where('user_id', $idmember)->orderByDesc('id')->limit(100)->get();
-    return response()->json(['value'=>'200','data'=>$rows]);
+    $items = $rows->map(function ($r) {
+      $arr = (array) $r;
+      $arr['aksi'] = $this->labelAksiAudit($arr['endpoint'] ?? '', $arr['method'] ?? 'POST');
+      return $arr;
+    })->all();
+    return response()->json(['value'=>'200','data'=>$items]);
   }
 
   public function bayardponline(Request $request){
