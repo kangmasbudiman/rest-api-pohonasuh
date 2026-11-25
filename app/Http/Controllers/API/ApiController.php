@@ -1809,47 +1809,25 @@ public function allcertificate(){
     }
     
     public function hapustransaksitidakjadi(Request $request){
-       
-        $tgl_kemarin=date('Y-m-d', strtotime("-1 day", strtotime(date("Y-m-d"))));
-      //  $datanya=Confirmasi::where([['confirmation','no'],['tgl_pesan',$tgl_kemarin]])->get();
-        $datanya=Confirmasi::where('id',$request->id)->get();
-     if(count($datanya)>0){
-         foreach ($datanya as $k) {
-             
-            $hapusdataadopsi=Dataadopsi::where('invoice',$k->invoice)->get();
-            
-            if(count($hapusdataadopsi)>0){
-                foreach($hapusdataadopsi as $j){
-                   $balikinjadiaviable=Pohon::where('idpohon',$j->idpohon)->get();
-                    if(count($balikinjadiaviable)>0){
-                            foreach($balikinjadiaviable as $p){
-                                $av=Pohon::find($p->id);
-                                $av->adopted="available";
-                                $av->update();
-                                
-                            }
-                    }   
-                       
-                    $datat=Dataadopsi::find($j->id);
-                   $datat->delete();
-                       
-                   
-                }
-                 return response()->json([
-                'value'=>'200',
-                
+      $conf = Confirmasi::find($request->id);
+      if (!$conf) {
+        return response()->json(['value'=>'404','pesan'=>'Transaksi tidak ditemukan'], 404);
+      }
+      // Kembalikan pohon ke pool, hapus adopsi, lalu hapus invoice juga —
+      // supaya tidak menyisakan invoice "menunggu" dengan 0 pohon.
+      foreach (Dataadopsi::where('invoice', $conf->invoice)->get() as $j) {
+        Pohon::where('idpohon', $j->idpohon)->update([
+          'adopted' => 'available',
+          'mitra_id' => null,
+          'reserved_name' => null,
+          'reserved_at' => null,
+          'reserved_admin' => 0,
+          'tgl_pesan' => null,
         ]);
-                
-            }
-             
-    $data=Confirmasi::find($k->id);
-    $data->delete();
-           return response()->json([
-                'value'=>'200',
-                
-        ]);
-         }
-     }
+        $j->delete();
+      }
+      $conf->delete();
+      return response()->json(['value'=>'200','pesan'=>'Transaksi dibatalkan']);
     }
     
     
@@ -10755,6 +10733,41 @@ public function confirmasipembayaran(Request $request){
   // ===== Pembayaran DP mitra =====
   // Mitra membuat invoice Mayar untuk DP online. Idempoten: link lama
   // dikembalikan bila DP untuk pesanan ini masih menunggu.
+  // ===== Audit log =====
+  public function auditlog(Request $request){
+    $k = env('ADMIN_API_KEY','');
+    if ($k === '' || !hash_equals($k, (string) $request->header('X-Admin-Key',''))) {
+      return response()->json(['value'=>'403','pesan'=>'Forbidden'], 403);
+    }
+    $q = trim((string) $request->input('q', $request->query('q', '')));
+    $role = trim((string) $request->input('role', $request->query('role', '')));
+    $perPage = min(100, max(10, (int) $request->input('per_page', 30)));
+    $query = DB::table('audit_logs')->orderByDesc('id');
+    if ($q !== '') {
+      $query->where(function ($w) use ($q) {
+        $w->where('user_name', 'like', "%{$q}%")
+          ->orWhere('endpoint', 'like', "%{$q}%")
+          ->orWhere('user_id', 'like', "%{$q}%");
+      });
+    }
+    if ($role !== '') $query->where('role', $role);
+    $rows = $query->paginate($perPage);
+    return response()->json([
+      'value' => '200',
+      'data' => $rows->items(),
+      'total' => $rows->total(),
+      'page' => $rows->currentPage(),
+      'per_page' => $perPage,
+    ]);
+  }
+
+  public function auditlogsaya(Request $request){
+    $idmember = (int) $request->input('idmember');
+    if (!$idmember) return response()->json(['value'=>'400','pesan'=>'idmember wajib'], 400);
+    $rows = DB::table('audit_logs')->where('user_id', $idmember)->orderByDesc('id')->limit(100)->get();
+    return response()->json(['value'=>'200','data'=>$rows]);
+  }
+
   public function bayardponline(Request $request){
     $apikey = trim((string)env('MAYAR_API_KEY'));
     if ($apikey === '') {

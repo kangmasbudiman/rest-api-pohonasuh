@@ -217,6 +217,10 @@ Route::post('ajukandp', [ApiController::class, 'ajukanDp']);
 Route::post('bayardponline', [ApiController::class, 'bayardponline']);
 Route::post('daftardp', [ApiController::class, 'daftarDp']);
 Route::get('daftardpadmin', [ApiController::class, 'daftarDpAdmin']);
+// ===== Audit log =====
+Route::get('auditlog', [ApiController::class, 'auditlog']);
+Route::post('auditlogsaya', [ApiController::class, 'auditlogsaya']);
+
 Route::post('verifikasidp', [ApiController::class, 'verifikasiDp']);
 Route::post('ajukanperpanjangan', [ApiController::class, 'ajukanPerpanjangan']);
 Route::post('daftarperpanjangan', [ApiController::class, 'daftarPerpanjanganMitra']);
