@@ -9621,8 +9621,8 @@ public function confirmasipembayaran(Request $request){
     if ($kuota <= 0) {
       return response()->json(['value'=>'400','pesan'=>'Semua pohon pesanan ini sudah diadopsi — tidak ada yang bisa dialokasikan ulang'], 400);
     }
-    if (count($codes) !== $kuota) {
-      return response()->json(['value'=>'400','pesan'=>'Pilih tepat '.$kuota.' pohon sesuai sisa pesanan'], 400);
+    if (count($codes) < 1 || count($codes) > $kuota) {
+      return response()->json(['value'=>'400','pesan'=>'Pilih 1 sampai '.$kuota.' pohon (maksimal sisa pesanan)'], 400);
     }
 
     $program = $req->program_id ? ProgramMitra::find($req->program_id) : null;
