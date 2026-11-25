@@ -9330,6 +9330,24 @@ public function confirmasipembayaran(Request $request){
     $p->budget_detail = $request->input('budget_detail') ?: null;
     $p->provinsi = $request->input('provinsi') ?: null;
     $p->save();
+
+    // Notifikasi ke admin saat program dibuat mitra via portal (bukan admin).
+    if ($request->filled('idmember')) {
+      $idMember = (int) $request->input('idmember');
+      $member = Member::find($idMember);
+      $mitra = Mitra::find($mitraId);
+      $namaMitra = $mitra ? (string)$mitra->nama : (string)($member->name ?? 'Mitra');
+      $isi = 'Program baru dari ' . $namaMitra . ': ' . $nama . ' — menunggu ditinjau admin.';
+      foreach (Member::where('admin', 1)->get() as $admin) {
+        $pesan = new Pesan();
+        $pesan->idmember = $admin->id;
+        $pesan->pesan = $isi;
+        $pesan->pesan_en = 'New program from ' . $namaMitra . ': ' . $nama;
+        $pesan->link = '/admin/program-mitra';
+        $pesan->status = 'noread';
+        $pesan->save();
+      }
+    }
     return response()->json(['value'=>'200','pesan'=>'Program ditambahkan','id'=>$p->id]);
   }
 
@@ -10951,6 +10969,19 @@ public function confirmasipembayaran(Request $request){
       'created_at'=>now(),
       'updated_at'=>now(),
     ]);
+
+    $mitra = Mitra::find($member->mitra_id);
+    $isi = 'Pengajuan perpanjangan program "' . $p->nama . '" dari ' . ($mitra ? $mitra->nama : 'mitra') . ' — menunggu persetujuan.';
+    foreach (Member::where('admin', 1)->get() as $admin) {
+      $pesan = new Pesan();
+      $pesan->idmember = $admin->id;
+      $pesan->pesan = $isi;
+      $pesan->pesan_en = 'Program extension request: ' . $p->nama;
+      $pesan->link = '/admin/perpanjangan';
+      $pesan->status = 'noread';
+      $pesan->save();
+    }
+
     return response()->json(['value'=>'200','pesan'=>'Pengajuan perpanjangan dikirim, menunggu admin']);
   }
 
