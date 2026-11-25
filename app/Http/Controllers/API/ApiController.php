@@ -11031,11 +11031,12 @@ public function confirmasipembayaran(Request $request){
       'cancelled' => (clone $base)->where('status', 'cancelled')->count(),
       'dihapus' => (clone $base)->where('status', 'dihapus')->count(),
     ];
-    $summary['all'] = array_sum($summary);
+    $summary['all'] = $summary['pending'] + $summary['approved'] + $summary['rejected'];
 
     $query = DB::table('mitra_pesanan as p')
       ->leftJoin('program_mitra as pm', 'pm.id', '=', 'p.program_id')
-      ->where('p.mitra_id', $mitraId);
+      ->where('p.mitra_id', $mitraId)
+      ->where('p.status', '!=', 'dihapus');
 
     if (in_array($status, ['pending', 'approved', 'rejected', 'cancelled', 'dihapus'], true)) {
       $query->where('p.status', $status);
