@@ -5,27 +5,33 @@ namespace Database\Seeders;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
 
-// Perbaikan data: hitung ulang jumlah_teradopsi tiap pesanan dari pohon unik
-// yang benar-benar ada di data_adopsi (melalui hold pesanan). Aman dijalankan
-// berkali-kali — menimpa, bukan menambah.
+// Perbaikan data: isi pesanan_id pada adopsi lama (dari hold approved
+// yang unik untuk pohon itu), lalu hitung ulang jumlah_teradopsi tiap pesanan
+// dari pohon unik adopsi yang benar-benar milik pesanan tersebut.
 class PerbaikiJumlahTeradopsi extends Seeder
 {
     public function run(): void
     {
-        $rows = DB::table('mitra_pesanan')->select('id')->get();
-        foreach ($rows as $r) {
-            $codes = DB::table('mitra_hold_request')
-                ->where('idpesanan', $r->id)
-                ->where('status', 'approved')
-                ->pluck('idpohon');
-            $adopted = 0;
-            if ($codes->count() > 0) {
-                $adopted = (int) DB::table('data_adopsi')
-                    ->whereIn('idpohon', $codes)
-                    ->distinct()
-                    ->count('idpohon');
-            }
-            DB::table('mitra_pesanan')->where('id', $r->id)->update(['jumlah_teradopsi' => $adopted]);
+        $adopsiLama = DB::table('data_adopsi')->whereNull('pesanan_id')->get(['id', 'idpohon']);
+        foreach ($adopsiLama as $a) {
+          $holds = DB::table('mitra_hold_request')
+            ->where('idpohon', $a->idpohon)
+            ->where('status', 'approved')
+            ->pluck('idpesanan')
+            ->unique()
+            ->filter()
+            ->values();
+          if ($holds->count() === 1) {
+            DB::table('data_adopsi')->where('id', $a->id)->update(['pesanan_id' => $holds->first()]);
+          }
+        }
+
+        foreach (DB::table('mitra_pesanan')->select('id')->get() as $r) {
+          $adopted = (int) DB::table('data_adopsi')
+            ->where('pesanan_id', $r->id)
+            ->distinct()
+            ->count('idpohon');
+          DB::table('mitra_pesanan')->where('id', $r->id)->update(['jumlah_teradopsi' => $adopted]);
         }
     }
 }

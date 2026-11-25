@@ -168,6 +168,13 @@ class ApiController extends Controller
                 ->all();
         }
         if (count($codes) === 0) return [];
+        $adoptersByTree = [];
+        foreach (DB::table('data_adopsi')->where('pesanan_id', $r->id)->get(['idpohon','nama']) as $a) {
+          $adoptersByTree[strtoupper((string)$a->idpohon)][] = (string)$a->nama;
+        }
+        foreach ($adoptersByTree as $k => $v) {
+          $adoptersByTree[$k] = array_values(array_unique($v));
+        }
         $trows = Pohon::whereIn('idpohon', $codes)
             ->select('idpohon', 'localname', 'species', 'desa', 'diameter', 'tinggi', 'foto_pohon')
             ->get();
@@ -184,6 +191,7 @@ class ApiController extends Controller
                 'diameterCm' => $t && $t->diameter !== null ? (float)$t->diameter : null,
                 'heightM' => $t && $t->tinggi !== null ? (float)$t->tinggi : null,
                 'photoUrl' => $t && $t->foto_pohon ? (string)$t->foto_pohon : null,
+                'adopters' => $adoptersByTree[$c] ?? [],
             ];
         }
         return $trees;
@@ -8952,6 +8960,13 @@ public function confirmasipembayaran(Request $request){
         $adopsi->dur = $v['dur'];
         $adopsi->mitra_id = $mitraId;
         $adopsi->program_id = $programId;
+        $holdSekarang = DB::table('mitra_hold_request')
+          ->where('idpohon', $p->idpohon)
+          ->where('mitra_id', $mitraId)
+          ->where('status', 'approved')
+          ->orderByDesc('id')
+          ->first();
+        $adopsi->pesanan_id = $holdSekarang ? $holdSekarang->idpesanan : null;
         $adopsi->tgl_exp = date('Y-m-d', strtotime("+".$v['dur']." year", strtotime($v['tgl_adopt'])));
         $adopsi->save();
 
@@ -9250,17 +9265,10 @@ public function confirmasipembayaran(Request $request){
     foreach (array_unique($pesananIds) as $pid) {
       $pid = (int) $pid;
       if ($pid <= 0) continue;
-      $codes = DB::table('mitra_hold_request')
-        ->where('idpesanan', $pid)
-        ->where('status', 'approved')
-        ->pluck('idpohon');
-      $adopted = 0;
-      if ($codes->count() > 0) {
-        $adopted = (int) DB::table('data_adopsi')
-          ->whereIn('idpohon', $codes)
-          ->distinct()
-          ->count('idpohon');
-      }
+      $adopted = (int) DB::table('data_adopsi')
+        ->where('pesanan_id', $pid)
+        ->distinct()
+        ->count('idpohon');
       DB::table('mitra_pesanan')->where('id', $pid)->update(['jumlah_teradopsi' => $adopted]);
     }
   }
@@ -11391,6 +11399,13 @@ public function confirmasipembayaran(Request $request){
         $adopsi->dur = $v['dur'];
         $adopsi->mitra_id = $mitraId;
         $adopsi->program_id = $programId;
+        $holdSekarang = DB::table('mitra_hold_request')
+          ->where('idpohon', $p->idpohon)
+          ->where('mitra_id', $mitraId)
+          ->where('status', 'approved')
+          ->orderByDesc('id')
+          ->first();
+        $adopsi->pesanan_id = $holdSekarang ? $holdSekarang->idpesanan : null;
         $adopsi->tgl_exp = date('Y-m-d', strtotime('+'.$v['dur'].' year', strtotime($v['tgl_adopt'])));
         $adopsi->save();
         // Tandai pohon sebagai dipesan mitra (sama seperti alur admin).
