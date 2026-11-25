@@ -9279,7 +9279,7 @@ public function confirmasipembayaran(Request $request){
       $sisa = DB::table('mitra_pesanan')
         ->where('program_id', $r->id)
         ->whereIn('status', ['pending', 'approved'])
-        ->selectRaw('COALESCE(SUM(jumlah - COALESCE(jumlah_teradopsi,0)),0) AS s')
+        ->selectRaw('COALESCE(SUM(IF(jumlah > COALESCE(jumlah_teradopsi,0), jumlah - COALESCE(jumlah_teradopsi,0), 0)),0) AS s')
         ->value('s');
       $r->sisa_pohon = (int) $sisa;
     }
