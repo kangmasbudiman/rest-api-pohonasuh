@@ -9835,6 +9835,18 @@ public function confirmasipembayaran(Request $request){
       $allocatedLabel = 'pohon dialokasikan';
     }
 
+    // Total harga pohon yang dialokasikan tidak boleh melebihi budget program.
+    $prog = $req->program_id ? ProgramMitra::find($req->program_id) : null;
+    if ($prog && (float)($prog->budget ?? 0) > 0) {
+      $totalPilihan = (float) $rows->sum('harga');
+      if ($totalPilihan > (float) $prog->budget) {
+        return response()->json(
+          ['value'=>'400','pesan'=>'Total harga pohon (' . number_format($totalPilihan, 0, ',', '.') . ') melebihi budget program (' . number_format((float)$prog->budget, 0, ',', '.') . ')'],
+          400,
+        );
+      }
+    }
+
     DB::beginTransaction();
     try {
       foreach ($rows as $p) {
