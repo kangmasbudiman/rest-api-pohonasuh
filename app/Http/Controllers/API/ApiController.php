@@ -8992,9 +8992,7 @@ public function confirmasipembayaran(Request $request){
           $perOrder[$pid] = ($perOrder[$pid] ?? 0) + 1;
         }
       }
-      foreach ($perOrder as $pid => $n) {
-        DB::table('mitra_pesanan')->where('id', $pid)->increment('jumlah_teradopsi', $n);
-      }
+      $this->hitungUlangTeradopsi(array_keys($perOrder));
       $this->isiCertnum($invoice);
       DB::commit();
     } catch (\Throwable $e) {
@@ -9264,6 +9262,29 @@ public function confirmasipembayaran(Request $request){
       ->values()
       ->all();
     return response()->json($list);
+  }
+
+  // Hitung ulang jumlah_teradopsi dari pohon UNIK yang benar-benar sudah
+  // tercatat di data_adopsi untuk pesanan itu. Idempoten — aman dipanggil
+  // berulang (input dua kali tidak akan menambah hitungan).
+  private function hitungUlangTeradopsi(array $pesananIds): void
+  {
+    foreach (array_unique($pesananIds) as $pid) {
+      $pid = (int) $pid;
+      if ($pid <= 0) continue;
+      $codes = DB::table('mitra_hold_request')
+        ->where('idpesanan', $pid)
+        ->where('status', 'approved')
+        ->pluck('idpohon');
+      $adopted = 0;
+      if ($codes->count() > 0) {
+        $adopted = (int) DB::table('data_adopsi')
+          ->whereIn('idpohon', $codes)
+          ->distinct()
+          ->count('idpohon');
+      }
+      DB::table('mitra_pesanan')->where('id', $pid)->update(['jumlah_teradopsi' => $adopted]);
+    }
   }
 
   // ===== Program Mitra =====
@@ -11277,9 +11298,7 @@ public function confirmasipembayaran(Request $request){
           $perOrder[$pid] = ($perOrder[$pid] ?? 0) + 1;
         }
       }
-      foreach ($perOrder as $pid => $n) {
-        DB::table('mitra_pesanan')->where('id', $pid)->increment('jumlah_teradopsi', $n);
-      }
+      $this->hitungUlangTeradopsi(array_keys($perOrder));
       DB::commit();
     } catch (\Throwable $e) {
       DB::rollBack();
