@@ -9784,11 +9784,14 @@ public function confirmasipembayaran(Request $request){
         ->orderBy('id')
         ->get()
         ->take((int) $req->jumlah);
-      if ($rows->count() < (int) $req->jumlah) {
+      if ($rows->count() < count($kodeAdmin)) {
         return response()->json(
-          ['value'=>'409','pesan'=>'Pohon pilihan admin tidak cukup / tidak sesuai provinsi program (butuh '.$req->jumlah.', cocok '.$rows->count().')'],
+          ['value'=>'409','pesan'=>'Sebagian pohon pilihan tidak tersedia / di luar provinsi program (pilih ' . count($kodeAdmin) . ', cocok ' . $rows->count() . ')'],
           409,
         );
+      }
+      if (count($kodeAdmin) > (int) $req->jumlah) {
+        return response()->json(['value'=>'400','pesan'=>'Jumlah pohon pilihan melebihi kuota pesanan'], 400);
       }
       $dilewati = 0;
       $allocatedLabel = 'pohon pilihan admin disetujui';
