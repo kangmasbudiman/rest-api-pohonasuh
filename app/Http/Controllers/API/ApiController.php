@@ -9278,6 +9278,7 @@ public function confirmasipembayaran(Request $request){
       // sisa pohon = sum(jumlah - jumlah_teradopsi) dari pesanan program ini
       $sisa = DB::table('mitra_pesanan')
         ->where('program_id', $r->id)
+        ->whereIn('status', ['pending', 'approved'])
         ->selectRaw('COALESCE(SUM(jumlah - COALESCE(jumlah_teradopsi,0)),0) AS s')
         ->value('s');
       $r->sisa_pohon = (int) $sisa;
@@ -9577,8 +9578,12 @@ public function confirmasipembayaran(Request $request){
     }
     $req = DB::table('mitra_pesanan')->where('id', $id)->where('status', 'approved')->first();
     if (!$req) return response()->json(['value'=>'404','pesan'=>'Pesanan disetujui tidak ditemukan'], 404);
-    if (count($codes) !== (int) $req->jumlah) {
-      return response()->json(['value'=>'400','pesan'=>'Pilih tepat '.$req->jumlah.' pohon sesuai kuota pesanan'], 400);
+    $kuota = max(0, (int) $req->jumlah - (int) ($req->jumlah_teradopsi ?? 0));
+    if ($kuota <= 0) {
+      return response()->json(['value'=>'400','pesan'=>'Semua pohon pesanan ini sudah diadopsi — tidak ada yang bisa dialokasikan ulang'], 400);
+    }
+    if (count($codes) !== $kuota) {
+      return response()->json(['value'=>'400','pesan'=>'Pilih tepat '.$kuota.' pohon sesuai sisa pesanan'], 400);
     }
 
     $program = $req->program_id ? ProgramMitra::find($req->program_id) : null;
